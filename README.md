@@ -29,9 +29,18 @@ cd chase-iq
 ```
 
 2. Create a virtual environment:
+
+Using Conda:
 ```bash
 conda create -n chase-iq python=3.10
 conda activate chase-iq
+```
+
+OR using venv:
+```bash
+python -m venv venv
+source venv/bin/activate  # On Linux/Mac
+venv\Scripts\activate     # On Windows
 ```
 
 3. Install dependencies:
