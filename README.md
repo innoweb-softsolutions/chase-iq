@@ -16,7 +16,7 @@ This tool allows you to automatically scrape LinkedIn Sales Navigator search res
 
 ## Prerequisites
 
-- Python 3.6+
+- Python 3.10
 - Chrome/Chromium browser
 - Chrome WebDriver
 
