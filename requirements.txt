@@ -1,4 +1,12 @@
+# Existing requirements
 selenium==4.29.0
 undetected-chromedriver==3.5.5
 pandas==2.2.3
 fake-useragent==2.1.0
+setuptools
+
+# Add new requirements for Facebook scraper
+facebook-scraper==0.2.59
+requests-html==0.10.0
+beautifulsoup4==4.11.1
+tqdm==4.64.1

@@ -1,5 +1,5 @@
 """
-LinkedIn Sales Navigator Scraper - Main Entry Point
+Lead Generation Tool - Main Entry Point
 """
 from src.scraper import LinkedInScraper
 import logging
@@ -61,15 +61,14 @@ def run_linkedin_scraper():
         
         # Save results to CSV
         if leads:
-            csv_file = scraper.save_to_csv(leads)
+            scraper.save_to_csv(leads)
             # Fix: If save_to_csv returns None but printed a file path, try to find the file
-            if csv_file is None:
-                try:
-                    # Try to get the latest CSV file from the output directory
-                    csv_file = get_latest_csv_file()
-                    print(f"[INFO] Using latest CSV file: {csv_file}")
-                except FileNotFoundError:
-                    print("[ERROR] Could not locate the saved CSV file.")
+            try:
+                # Try to get the latest CSV file from the output directory
+                csv_file = get_latest_csv_file()
+                print(f"[INFO] Using latest CSV file: {csv_file}")
+            except FileNotFoundError:
+                print("[ERROR] Could not locate the saved CSV file.")
             
             print(f"[OK] Successfully scraped {len(leads)} leads and saved to {csv_file}")
         else:
@@ -88,6 +87,31 @@ def run_linkedin_scraper():
         print("[INFO] LinkedIn scraping complete.")
     
     return csv_file
+
+def run_facebook_scraper():
+    """Run Facebook scraper and return the path to the saved CSV file."""
+    try:
+        # Import the Facebook scraper here to avoid circular imports
+        from facebook.scraper import FacebookScraper
+        
+        print("[INFO] Starting Facebook Scraper...")
+        
+        # Initialize the scraper
+        scraper = FacebookScraper()
+        
+        # Run the scraper
+        csv_file = scraper.run()
+        
+        if csv_file:
+            print(f"[OK] Successfully scraped Facebook leads and saved to {csv_file}")
+        else:
+            print("[WARNING] No leads collected from Facebook.")
+        
+        return csv_file
+    
+    except Exception as e:
+        print(f"[ERROR] An error occurred during Facebook scraping: {e}")
+        return None
 
 def run_snovio_email_finder(csv_file=None):
     """Run Snov.io email finder on a CSV file."""
@@ -165,22 +189,24 @@ def run_hunter_verification(csv_file=None):
 def display_menu():
     """Display the main menu and return user choice."""
     print("\n" + "="*50)
-    print("LinkedIn Sales Navigator Automation Tool")
+    print("Lead Generation Automation Tool")
     print("="*50)
     print("1. Run LinkedIn Sales Navigator Scraper")
-    print("2. Run Snov.io Email Finder (on latest CSV)")
-    print("3. Run Hunter.io Email Verification (on latest CSV)")
-    print("4. Run Full Pipeline (LinkedIn → Snov.io → Hunter.io)")
+    print("2. Run Facebook Group/Page Scraper")
+    print("3. Run Snov.io Email Finder (on latest CSV)")
+    print("4. Run Hunter.io Email Verification (on latest CSV)")
+    print("5. Run Full LinkedIn Pipeline (LinkedIn → Snov.io → Hunter.io)")
+    print("6. Run Full Facebook Pipeline (Facebook → Snov.io → Hunter.io)")
     print("0. Exit")
     print("="*50)
     
     while True:
         try:
-            choice = int(input("Enter your choice [0-4]: "))
-            if 0 <= choice <= 4:
+            choice = int(input("Enter your choice [0-6]: "))
+            if 0 <= choice <= 6:
                 return choice
             else:
-                print("Invalid choice. Please enter a number between 0 and 4.")
+                print("Invalid choice. Please enter a number between 0 and 6.")
         except ValueError:
             print("Invalid input. Please enter a number.")
 
@@ -196,7 +222,7 @@ def get_yes_no_input(prompt):
             print("Please answer 'y' or 'n'.")
 
 def main():
-    """Main entry point for the LinkedIn Sales Navigator automation tool."""
+    """Main entry point for the Lead Generation automation tool."""
     try:
         while True:
             choice = display_menu()
@@ -212,17 +238,34 @@ def main():
                     if csv_file and get_yes_no_input("Would you like to verify the emails with Hunter.io?"):
                         run_hunter_verification(csv_file)
                 
-            elif choice == 2:  # Snov.io Email Finder with pattern fallback
+            elif choice == 2:  # Facebook Scraper
+                csv_file = run_facebook_scraper()
+                if csv_file and get_yes_no_input("Would you like to run Snov.io Email Finder on this data?"):
+                    csv_file = run_snovio_email_finder(csv_file)  # Update csv_file with result
+                    if csv_file and get_yes_no_input("Would you like to verify the emails with Hunter.io?"):
+                        run_hunter_verification(csv_file)
+                
+            elif choice == 3:  # Snov.io Email Finder
                 csv_file = run_snovio_email_finder()
                 if csv_file and get_yes_no_input("Would you like to verify the emails with Hunter.io?"):
                     run_hunter_verification(csv_file)
                 
-            elif choice == 3:  # Hunter.io Email Verification
+            elif choice == 4:  # Hunter.io Email Verification
                 run_hunter_verification()
                 
-            elif choice == 4:  # Full Pipeline
-                print("[INFO] Running full pipeline...")
+            elif choice == 5:  # Full LinkedIn Pipeline
+                print("[INFO] Running full LinkedIn pipeline...")
                 csv_file = run_linkedin_scraper()
+                if csv_file:
+                    csv_file = run_snovio_email_finder(csv_file)  # Now includes pattern fallback
+                    if csv_file:  # Only proceed if email finding was successful
+                        run_hunter_verification(csv_file)
+                    else:
+                        print("[WARNING] Skipping Hunter.io verification due to email finder failure")
+            
+            elif choice == 6:  # Full Facebook Pipeline
+                print("[INFO] Running full Facebook pipeline...")
+                csv_file = run_facebook_scraper()
                 if csv_file:
                     csv_file = run_snovio_email_finder(csv_file)  # Now includes pattern fallback
                     if csv_file:  # Only proceed if email finding was successful
