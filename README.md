@@ -1,4 +1,4 @@
-# LinkedIn Sales Navigator Scraper
+# CQ
 
 A Python-based automation tool that scrapes LinkedIn Sales Navigator for profile data using Selenium.
 
