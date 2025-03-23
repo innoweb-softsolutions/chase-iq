@@ -22,14 +22,21 @@ class GroupExtractor:
         logger.info(f"Scraping Facebook group: {group_id}")
         
         posts = []
-        post_generator = fb_scraper.get_posts(
-            group=group_id,
-            pages=self.max_pages,
-            options={"posts_per_page": POSTS_PER_PAGE},
-            cookies=cookies
-        )
+        options = {"posts_per_page": POSTS_PER_PAGE}
         
+        # If cookies is a dict with email/pass, use credentials instead
+        if isinstance(cookies, dict) and "email" in cookies and "pass" in cookies:
+            options["credentials"] = (cookies["email"], cookies["pass"])
+            cookies = None
+            
         try:
+            post_generator = fb_scraper.get_posts(
+                group=group_id,
+                pages=self.max_pages,
+                options=options,
+                cookies=cookies
+            )
+            
             for post in post_generator:
                 if len(posts) >= self.max_posts:
                     break
@@ -105,6 +112,8 @@ class GroupExtractor:
         
         # If HTTP-based approach failed or returned no results, try Selenium as fallback
         if not posts and use_selenium_fallback:
+            # Wait a bit before trying the fallback to avoid rate limiting
+            time.sleep(self.delay * 2)
             posts = self._scrape_group_with_selenium(group_id, email, password)
             
         return posts

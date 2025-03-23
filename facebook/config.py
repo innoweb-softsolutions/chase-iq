@@ -1,53 +1,50 @@
 # Facebook scraper configuration
 
-# Facebook Credentials (optional)
-FB_EMAIL = None  # Set to your email to enable authenticated scraping
-FB_PASSWORD = None  # Set to your password to enable authenticated scraping
+# Facebook Credentials
+FB_EMAIL = "tnkkdec@gmail.com"  # Facebook login email
+FB_PASSWORD = "ys26U9t.YX5cP@b"  # Facebook login password
 
-# Target Groups/Pages
+# Target Groups/Pages (updated with real group IDs from your screenshots)
 FB_GROUPS = [
-    # Real estate investment and agent groups
-    "realestateagentscommunity",
-    "realestateinvestmentclub",
-    "realestateinvestorsnetwork",
-    "flippinghousesgroup",
-    "firsttimehomebuyersgroup",
-    "brrrinvestingstrategies"
+    # Real estate groups you've joined
+    "1745604695704216",  # Real Estate Islamabad (19.6K members)
+    "1772684086279447",  # Real Estate Advisors for Overseas Pakistanis (58.0K members)
+    "736890122998087",   # Islamabad Real Estate (37.1K members)
+    "isbrealeatemkt",    # Islamabad Real Estate Market (21.1K members)
+    "701830767484785",   # Islamabad Real Estate/Property/Societies/Chakri Road/Ring Road (10.8K members)
 ]
 
 FB_PAGES = [
-    # Real estate experts, coaches, and gurus
-    "grantcardone",
-    "robertkiyosaki",
-    "tonirobbins",
-    "realestateinvestingtoday",
-    "coachcarson",
-    "biggerpockets"
+    # Popular real estate pages with custom URLs
+    "hspropertyrealestate",    # H&S Real Estate Dubai (1.1M followers)
+    "princerealestategroup",   # Prince Real Estate Group (943K followers)
+    "remax",
+    "century21",
+    "coldwellbanker",
+    "zillow"
 ]
 
-# Scraping Settings
-MAX_POSTS = 100  # Increased for better coverage
-POSTS_PER_PAGE = 20  # Number of posts to request per page
-TIMEOUT = 60  # Request timeout in seconds
-MAX_PAGES = 5  # Maximum number of pages to scrape per group/page
-USE_BROWSER = True  # Enable browser fallback for better results
-BROWSER_TYPE = "chrome"  # Browser to use when USE_BROWSER is True
-HEADLESS = True  # Run browser in headless mode
-DELAY_BETWEEN_REQUESTS = 3  # Delay between requests to avoid rate limiting
+# Scraping Settings (increased delays to avoid flagging)
+MAX_POSTS = 40          # Adjusted to get enough posts without hitting limits
+POSTS_PER_PAGE = 10     # Standard posts per page
+TIMEOUT = 90            # Increased timeout for better reliability
+MAX_PAGES = 2           # Reduced to avoid being flagged
+USE_BROWSER = True      # Use browser fallback when needed
+BROWSER_TYPE = "chrome" # Browser type
+HEADLESS = True         # Headless mode
+DELAY_BETWEEN_REQUESTS = 12  # Significantly increased delay to avoid detection
 
 # Keywords to extract relevant posts (real estate focus)
 KEYWORDS = [
     "real estate agent",
+    "property dealer",
     "real estate broker",
     "property manager",
     "real estate investor",
-    "BRR",
-    "flip houses",
-    "first time buyers",
+    "property consultant",
     "realtor",
-    "real estate coach",
-    "real estate expert"
+    "property advisor"
 ]
 
 # Output Settings
-OUTPUT_DIR = "output"  # Directory to save CSV files
+OUTPUT_DIR = "output"

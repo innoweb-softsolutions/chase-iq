@@ -53,11 +53,21 @@ class FacebookScraper:
         self.cookies = None
         if self.email and self.password:
             try:
-                fb_scraper.use_persistent_session(self.email, self.password)
-                self.cookies = "from_browser"
+                # Updated authentication method
+                self.cookies = fb_scraper.get_cookies(self.email, self.password)
                 logger.info("Successfully set up cookies from login")
+            except AttributeError:
+                # Fallback to old method if available
+                try:
+                    fb_scraper.set_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
+                    fb_scraper.enable_logging()
+                    # Just set credentials for later use
+                    self.cookies = {"email": self.email, "pass": self.password}
+                    logger.info("Set up credentials for later authentication")
+                except Exception as e:
+                    logger.warning(f"Failed to set up any authentication: {e}")
             except Exception as e:
-                logger.warning(f"Failed to set up persistent session: {e}")
+                logger.warning(f"Failed to set up cookies: {e}")
         
     def scrape_groups(self):
         """Scrape all configured Facebook groups."""
@@ -76,8 +86,8 @@ class FacebookScraper:
                 all_posts.extend(posts)
                 logger.info(f"Finished scraping group {group}: {len(posts)} posts")
                 
-                # Avoid rate limiting
-                time.sleep(5)
+                # Avoid rate limiting - increased delay
+                time.sleep(DELAY_BETWEEN_REQUESTS * 2)
                 
             except Exception as e:
                 logger.error(f"Error scraping group {group}: {e}")
@@ -92,18 +102,23 @@ class FacebookScraper:
             try:
                 logger.info(f"Starting to scrape page: {page}")
                 
+                # If we have credentials, try to use them
+                options = {"posts_per_page": 10}
+                if isinstance(self.cookies, dict) and "email" in self.cookies:
+                    options["credentials"] = (self.cookies["email"], self.cookies["pass"])
+                
                 posts = list(fb_scraper.get_posts(
                     account=page,
                     pages=self.max_pages,
-                    options={"posts_per_page": 10},
-                    cookies=self.cookies
+                    options=options,
+                    cookies=self.cookies if not isinstance(self.cookies, dict) else None
                 ))
                 
                 all_posts.extend(posts[:self.max_posts])
                 logger.info(f"Finished scraping page {page}: {len(posts[:self.max_posts])} posts")
                 
-                # Avoid rate limiting
-                time.sleep(5)
+                # Avoid rate limiting - increased delay
+                time.sleep(DELAY_BETWEEN_REQUESTS * 2)
                 
             except Exception as e:
                 logger.error(f"Error scraping page {page}: {e}")
@@ -120,7 +135,15 @@ class FacebookScraper:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = os.path.join(self.output_dir, f"facebook_leads_{timestamp}.csv")
         
+        # Create a DataFrame (even if empty)
         df = pd.DataFrame(leads)
+        
+        # If DataFrame is empty, add columns to match expected format
+        if df.empty:
+            df = pd.DataFrame(columns=[
+                "Name", "Title", "Company", "Profile URL", "Email", "Website"
+            ])
+        
         df.to_csv(filename, index=False)
         
         logger.info(f"Saved {len(leads)} leads to {filename}")
