@@ -7,6 +7,9 @@ FB_PASSWORD = "ys26U9t.YX5cP@b"  # Facebook login password
 # Target Groups/Pages (updated with real group IDs from your screenshots)
 FB_GROUPS = [
     # Real estate groups you've joined
+    "realestatemastermind",        # Real Estate Investing (433K members)
+    "realestatebusinessowner",    # Real Estate Agent Mastermind Group (118K members)
+    "realestateinvestors",        # Real Estate Investors (103K members)
     "1745604695704216",  # Real Estate Islamabad (19.6K members)
     "1772684086279447",  # Real Estate Advisors for Overseas Pakistanis (58.0K members)
     "736890122998087",   # Islamabad Real Estate (37.1K members)
@@ -15,13 +18,11 @@ FB_GROUPS = [
 ]
 
 FB_PAGES = [
-    # Popular real estate pages with custom URLs
-    "hspropertyrealestate",    # H&S Real Estate Dubai (1.1M followers)
-    "princerealestategroup",   # Prince Real Estate Group (943K followers)
-    "remax",
-    "century21",
-    "coldwellbanker",
-    "zillow"
+    "zillow",                   # Zillow Real Estate
+    "remax",                    # RE/MAX
+    "KellerWilliamsRealty",     # Keller Williams Realty
+    "CBInTheWorld",             # Coldwell Banker
+    "BerkshireHathawayHomeServices" # Berkshire Hathaway Home Services
 ]
 
 # Scraping Settings (increased delays to avoid flagging)

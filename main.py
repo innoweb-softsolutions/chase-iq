@@ -286,5 +286,44 @@ def main():
     finally:
         print("[INFO] Script execution complete.")
 
+def test_facebook_scraper():
+    """Test function to run just the Facebook scraper with debugging."""
+    print("[INFO] Starting Facebook Scraper in TEST mode...")
+    
+    # Fix encoding for console output
+    import sys
+    if sys.stdout.encoding != 'utf-8':
+        sys.stdout.reconfigure(encoding='utf-8')
+    
+    # Configure logging for detailed output
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        handlers=[
+            logging.FileHandler(f"logs/fb_test_{time.strftime('%Y%m%d_%H%M%S')}.log", encoding='utf-8'),
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
+    
+    # Import the Facebook scraper
+    from facebook.scraper import FacebookScraper
+    
+    # Initialize with fewer groups for testing
+    scraper = FacebookScraper(
+        groups=["propertylead"],  # Just one group for testing
+        max_posts=10,                  # Limit posts for faster testing
+        use_browser_fallback=True     # Enable Selenium fallback
+    )
+    
+    # Run the scraper
+    csv_file = scraper.run()
+    
+    print(f"[TEST] Scraper returned CSV file: {csv_file}")
+    return csv_file
+
 if __name__ == "__main__":
-    main()
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "--test-facebook":
+        test_facebook_scraper()
+    else:
+        main()

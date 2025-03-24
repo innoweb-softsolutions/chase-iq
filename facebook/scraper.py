@@ -1,16 +1,14 @@
 """
-Facebook Lead Scraper - Main implementation
+Facebook Lead Scraper - Main implementation (simplified)
 """
 import os
 import logging
 import time
-import json
 import pandas as pd
 from datetime import datetime
-import facebook_scraper as fb_scraper
 
-from .extractors.group_extractor import GroupExtractor
-from .extractors.profile_extractor import ProfileExtractor
+# Import our custom selenium scraper
+from .selenium_scraper import FacebookSeleniumScraper
 from .utils.data_processor import DataProcessor
 from .config import (
     FB_EMAIL, FB_PASSWORD, FB_GROUPS, FB_PAGES, 
@@ -42,55 +40,51 @@ class FacebookScraper:
         self.password = password
         self.output_dir = output_dir
         
-        # Initialize extractors
-        self.group_extractor = GroupExtractor(max_posts, max_pages, DELAY_BETWEEN_REQUESTS)
-        self.profile_extractor = ProfileExtractor(DELAY_BETWEEN_REQUESTS)
-        
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Set up cookies file if credentials are provided
-        self.cookies = None
-        if self.email and self.password:
-            try:
-                # Updated authentication method
-                self.cookies = fb_scraper.get_cookies(self.email, self.password)
-                logger.info("Successfully set up cookies from login")
-            except AttributeError:
-                # Fallback to old method if available
-                try:
-                    fb_scraper.set_user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36")
-                    fb_scraper.enable_logging()
-                    # Just set credentials for later use
-                    self.cookies = {"email": self.email, "pass": self.password}
-                    logger.info("Set up credentials for later authentication")
-                except Exception as e:
-                    logger.warning(f"Failed to set up any authentication: {e}")
-            except Exception as e:
-                logger.warning(f"Failed to set up cookies: {e}")
+        logger.info("Initializing Facebook scraper with Selenium")
         
     def scrape_groups(self):
         """Scrape all configured Facebook groups."""
         all_posts = []
         
-        for group in self.groups:
-            try:
-                logger.info(f"Starting to scrape group: {group}")
-                posts = self.group_extractor.scrape_group(
-                    group,
-                    use_selenium_fallback=self.use_browser_fallback,
-                    email=self.email, 
-                    password=self.password,
-                    cookies=self.cookies
-                )
-                all_posts.extend(posts)
-                logger.info(f"Finished scraping group {group}: {len(posts)} posts")
-                
-                # Avoid rate limiting - increased delay
-                time.sleep(DELAY_BETWEEN_REQUESTS * 2)
-                
-            except Exception as e:
-                logger.error(f"Error scraping group {group}: {e}")
+        # Create a single scraper instance
+        scraper = FacebookSeleniumScraper(
+            email=self.email, 
+            password=self.password,
+            headless=False  # Set to False to see what's happening
+        )
+
+        
+        try:
+            login_success = scraper.login()
+            if login_success:
+                logger.info("Successfully logged in to Facebook")
+            else:
+                logger.warning("Failed to log in to Facebook - content may be restricted")
+            # Scrape each group
+            for group in self.groups:
+                try:
+                    logger.info(f"Starting to scrape group: {group}")
+                    posts = scraper.scrape_group(
+                        group,
+                        max_posts=self.max_posts
+                    )
+                    
+                    all_posts.extend(posts)
+                    logger.info(f"Finished scraping group {group}: {len(posts)} posts")
+                    
+                    # Add delay between groups
+                    time.sleep(DELAY_BETWEEN_REQUESTS)
+                    
+                except Exception as e:
+                    logger.error(f"Error scraping group {group}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+        finally:
+            # Always close the browser
+            scraper.close()
                 
         return all_posts
     
@@ -98,30 +92,41 @@ class FacebookScraper:
         """Scrape all configured Facebook pages."""
         all_posts = []
         
-        for page in self.pages:
-            try:
-                logger.info(f"Starting to scrape page: {page}")
-                
-                # If we have credentials, try to use them
-                options = {"posts_per_page": 10}
-                if isinstance(self.cookies, dict) and "email" in self.cookies:
-                    options["credentials"] = (self.cookies["email"], self.cookies["pass"])
-                
-                posts = list(fb_scraper.get_posts(
-                    account=page,
-                    pages=self.max_pages,
-                    options=options,
-                    cookies=self.cookies if not isinstance(self.cookies, dict) else None
-                ))
-                
-                all_posts.extend(posts[:self.max_posts])
-                logger.info(f"Finished scraping page {page}: {len(posts[:self.max_posts])} posts")
-                
-                # Avoid rate limiting - increased delay
-                time.sleep(DELAY_BETWEEN_REQUESTS * 2)
-                
-            except Exception as e:
-                logger.error(f"Error scraping page {page}: {e}")
+        # Create a single scraper instance
+        scraper = FacebookSeleniumScraper(
+            email=self.email, 
+            password=self.password,
+            headless=False
+        )
+        
+        try:
+            login_success = scraper.login()
+            if login_success:
+                logger.info("Successfully logged in to Facebook")
+            else:
+                logger.warning("Failed to log in to Facebook - content may be restricted")
+            # Scrape each page
+            for page in self.pages:
+                try:
+                    logger.info(f"Starting to scrape page: {page}")
+                    posts = scraper.scrape_page(
+                        page,
+                        max_posts=self.max_posts
+                    )
+                    
+                    all_posts.extend(posts)
+                    logger.info(f"Finished scraping page {page}: {len(posts)} posts")
+                    
+                    # Add delay between pages
+                    time.sleep(DELAY_BETWEEN_REQUESTS)
+                    
+                except Exception as e:
+                    logger.error(f"Error scraping page {page}: {e}")
+                    import traceback
+                    logger.error(traceback.format_exc())
+        finally:
+            # Always close the browser
+            scraper.close()
                 
         return all_posts
     
