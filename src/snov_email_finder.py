@@ -26,9 +26,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Snov.io API credentials - replace with your actual credentials
-SNOV_CLIENT_ID = "c437037b467bc52eafebf948abb4cf82"
-SNOV_CLIENT_SECRET = "bc19ba364a6949e08e3192535b456fa6"
+# Snov.io API credentials 
+SNOV_CLIENT_ID = "431b2aa328caa43ccb954005edfbb1ee"
+SNOV_CLIENT_SECRET = "bfc9449d3ba1c7dc93f2a622a6807c9e"
 
 # Snov.io API endpoints
 SNOV_AUTH_URL = "https://api.snov.io/v1/oauth/access_token"
