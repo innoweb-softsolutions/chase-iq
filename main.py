@@ -305,21 +305,80 @@ def test_facebook_scraper():
         ]
     )
     
-    # Import the Facebook scraper
-    from facebook.scraper import FacebookScraper
+    # Import credentials from config
+    from facebook.config import FB_EMAIL, FB_PASSWORD, FB_GROUPS, DELAY_BETWEEN_REQUESTS
     
-    # Initialize with fewer groups for testing
-    scraper = FacebookScraper(
-        groups=["propertylead"],  # Just one group for testing
-        max_posts=10,                  # Limit posts for faster testing
-        use_browser_fallback=True     # Enable Selenium fallback
+    # Import the new scraper
+    from facebook.selenium_scraper import FacebookSeleniumScraper
+    
+    # Define test groups - use known public groups to test
+    test_groups = [
+        "zillow",       # Public Facebook page about real estate
+        "remax"         # Another real estate brand page
+    ]
+    
+    # Delete existing cookies file to force a fresh login
+    import os
+    if os.path.exists('facebook_cookies.pkl'):
+        os.remove('facebook_cookies.pkl')
+        print("[INFO] Removed old cookies file to force fresh login")
+    
+    # Initialize with the new scraper
+    scraper = FacebookSeleniumScraper(
+        email=FB_EMAIL,
+        password=FB_PASSWORD,
+        headless=False  # Set to False to see what's happening
     )
     
-    # Run the scraper
-    csv_file = scraper.run()
+    try:
+        # Log in
+        print("[INFO] Attempting login - you may need to manually complete security steps")
+        print("[INFO] Please wait until the browser finishes loading and logging in")
+        login_success = scraper.login()
+        if login_success:
+            print("[INFO] Successfully logged in to Facebook")
+        else:
+            print("[WARNING] Failed to log in to Facebook - content may be restricted")
+        
+        # Add a pause after login to ensure everything is stable
+        print("[INFO] Waiting for session to stabilize...")
+        time.sleep(10)
+        
+        # Scrape each group
+        all_posts = []
+        for group in test_groups:
+            print(f"[INFO] Starting to scrape group: {group}")
+            posts = scraper.scrape_group(group, max_posts=5)
+            all_posts.extend(posts)
+            print(f"[INFO] Finished scraping group {group}: {len(posts)} posts")
+            time.sleep(DELAY_BETWEEN_REQUESTS)
+        
+        # Process posts to extract leads
+        from facebook.utils.data_processor import DataProcessor
+        leads = DataProcessor.format_for_pipeline(all_posts)
+        
+        # Save leads to CSV
+        from datetime import datetime
+        import os
+        import pandas as pd
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = os.path.join("output", f"facebook_leads_test_{timestamp}.csv")
+        
+        df = pd.DataFrame(leads)
+        if df.empty:
+            df = pd.DataFrame(columns=[
+                "Name", "Title", "Company", "Profile URL", "Email", "Website"
+            ])
+        
+        df.to_csv(filename, index=False)
+        print(f"[INFO] Saved {len(leads)} leads to {filename}")
+        
+        return filename
     
-    print(f"[TEST] Scraper returned CSV file: {csv_file}")
-    return csv_file
+    finally:
+        # Always close the browser
+        scraper.close()
 
 if __name__ == "__main__":
     import sys
