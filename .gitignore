@@ -123,3 +123,7 @@ dmypy.json
 # Windows
 Thumbs.db
 ehthumbs.db
+
+# Virtual Env
+Scripts/
+pyvenv.cfg
