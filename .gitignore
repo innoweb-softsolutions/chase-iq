@@ -1,13 +1,10 @@
-# Byte-compiled / optimized / DLL files
+# Python-specific
 __pycache__/
 *.py[cod]
 *$py.class
-
-# C extensions
 *.so
-
-# Distribution / packaging
 .Python
+env/
 build/
 develop-eggs/
 dist/
@@ -24,102 +21,25 @@ wheels/
 .installed.cfg
 *.egg
 
-# Project files
-output/*
-!output/.gitkeep
-
-# PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
-*.manifest
-*.spec
-
-# Installer logs
-pip-log.txt
-pip-delete-this-directory.txt
-
-# Unit test / coverage reports
-htmlcov/
-.tox/
-.nox/
-.coverage
-.coverage.*
-.cache
-nosetests.xml
-coverage.xml
-*.cover
-*.py,cover
-.hypothesis/
-
-# Translations
-*.mo
-*.pot
-
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
-# pyenv
-.python-version
-
-# celery beat schedule file
-celerybeat-schedule
-
-# dotenv
-.env
-
-# virtualenv
+# Virtual Environment
 venv/
 ENV/
-env/
-env.bak/
-venv.bak/
 
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
-
-# mypy
-.mypy_cache/
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# VS Code
+# IDE-specific files
+.idea/
 .vscode/
+*.swp
+*.swo
 
-# macOS
-.DS_Store
+# Project-specific data directories
+data/
+processed/
+final/
 
-# Windows
-Thumbs.db
-ehthumbs.db
+# Keep data directory structure but ignore contents
+!data/.gitkeep
+!processed/.gitkeep
+!final/.gitkeep
+
+# API keys and sensitive information
+.env
