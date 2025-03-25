@@ -107,3 +107,35 @@ def extract_website(driver):
         print(f"[WARNING] Website regex extraction error: {e}")
     
     return "N/A"
+
+def extract_domain(website):
+    """
+    Extract the domain (e.g., domain.com) from a website URL.
+    """
+    if website and website.startswith("http"):
+        domain = website.split("//")[-1].split("/")[0].lower()
+        return domain
+    return None
+
+def verify_email(email, website):
+    """
+    Check if the email's domain is one of the public providers (gmail, hotmail, outlook, yahoo).
+    If it is, return 'N/A'. Otherwise, return the original email.
+    """
+    if email == "N/A":
+        return email
+
+    # Extract email domain
+    email_domain = email.split("@")[-1].lower()
+    
+    # List of public email providers to filter out.
+    public_providers = ["gmail", "hotmail", "outlook", "yahoo"]
+    
+    # Check if the email domain starts with one of these providers
+    for provider in public_providers:
+        if email_domain.startswith(provider + ".") or email_domain == provider:
+            print(f"[INFO] Email domain {email_domain} is a public domain. Marking as N/A.")
+            return "N/A"
+    
+
+    return email
