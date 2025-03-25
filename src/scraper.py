@@ -4,6 +4,7 @@ LinkedIn Sales Navigator Scraper - Core Scraping Logic
 import os
 import pickle
 import time
+import random
 import undetected_chromedriver as uc
 import pandas as pd
 from selenium.webdriver.common.by import By
@@ -148,15 +149,62 @@ class LinkedInScraper:
             print(f"[ERROR] Login failed: {e}")
             take_debug_screenshot(self.driver, "login_error")
     
+    def human_like_scroll(self):
+        """Scroll in a more human-like pattern to avoid detection."""
+        try:
+            # Get current scroll height
+            scroll_height = self.driver.execute_script("return document.body.scrollHeight")
+            
+            # Number of scroll steps (random)
+            steps = random.randint(3, 5)
+            
+            for i in range(steps):
+                # Random scroll distance (percentage of page)
+                scroll_percent = random.uniform(0.1, 0.3)
+                scroll_y = int(scroll_height * scroll_percent)
+                
+                # Scroll down with random pause
+                self.driver.execute_script(f"window.scrollBy(0, {scroll_y});")
+                time.sleep(random.uniform(0.5, 1.5))
+                
+        except Exception as e:
+            print(f"[WARNING] Error during scrolling: {e}")
+            # Continue execution even if scrolling fails
+            pass
+    
+    def save_profile_links(self, profile_links, filename="output/scraped_profiles.txt"):
+        """Save profile links to a file to track already scraped profiles."""
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, "a") as f:
+            for link in profile_links:
+                f.write(f"{link}\n")
+        print(f"[INFO] Saved {len(profile_links)} profile links to {filename}")
+
+    def load_scraped_profiles(self, filename="output/scraped_profiles.txt"):
+        """Load previously scraped profile links to avoid duplicates."""
+        if not os.path.exists(filename):
+            return set()
+            
+        with open(filename, "r") as f:
+            return set(line.strip() for line in f if line.strip())
+    
     def get_profile_links(self):
         """Extract LinkedIn lead profile URLs from Sales Navigator search results."""
         profile_links = []
         page = 1
+        
+        # Load previously scraped profiles to avoid duplicates
+        previously_scraped = self.load_scraped_profiles()
+        print(f"[INFO] Found {len(previously_scraped)} previously scraped profiles to avoid duplicates")
 
-        while page <= 1 and len(profile_links) < MAX_PROFILES:
+        # Changed from page <= 1 to page <= 20
+        while page <= 20 and len(profile_links) < MAX_PROFILES:
             print(f"[INFO] Extracting Profile Links from Page {page}...")
 
-            # Scroll several times to trigger lazy-loading.
+            # Add human-like scrolling before extracting profiles
+            self.human_like_scroll()
+            
+            # Original scrolling code - keep for consistency
             for _ in range(7):
                 self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
                 time.sleep(2)
@@ -172,7 +220,8 @@ class LinkedInScraper:
 
             for profile in profiles:
                 link = profile.get_attribute("href")
-                if link and "linkedin.com" in link and link not in profile_links:
+                # Add check for previously_scraped to avoid duplicates
+                if link and "linkedin.com" in link and link not in profile_links and link not in previously_scraped:
                     full_link = "https://www.linkedin.com" + link if link.startswith("/sales/lead/") else link
                     profile_links.append(full_link)
                     if len(profile_links) >= MAX_PROFILES:
@@ -191,7 +240,8 @@ class LinkedInScraper:
                 try:
                     next_buttons[0].click()
                     page += 1
-                    time.sleep(5)
+                    # Add random delay after clicking next page button
+                    time.sleep(5 + random.uniform(1, 3))
                 except Exception as e:
                     print("[WARNING] Error clicking next button:", e)
                     break
@@ -200,6 +250,11 @@ class LinkedInScraper:
                 break
 
         print(f"[OK] Extracted {len(profile_links)} profile links in total.")
+        
+        # Save the newly found profile links to avoid duplicates in future runs
+        if profile_links:
+            self.save_profile_links(profile_links)
+        
         return profile_links[:MAX_PROFILES]
     
     def scrape_profiles(self, profile_links):
@@ -210,6 +265,9 @@ class LinkedInScraper:
             try:
                 self.driver.get(profile_url)
                 time.sleep(5)  # Give page time to load
+                
+                # Add some human-like behavior
+                self.human_like_scroll()
                 
                 # Updated name extraction for the new Sales Navigator HTML structure
                 try:
@@ -258,7 +316,11 @@ class LinkedInScraper:
                 })
             except Exception as e:
                 print(f"[WARNING] Skipping profile due to error: {e}")
-            time.sleep(DELAY_BETWEEN_REQUESTS)
+            
+            # Add randomization to delay between requests for more human-like behavior
+            delay = DELAY_BETWEEN_REQUESTS + random.uniform(0.5, 2)
+            time.sleep(delay)
+            
         return leads
     
     def save_to_csv(self, leads):
