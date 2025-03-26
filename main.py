@@ -2,6 +2,7 @@
 LinkedIn Sales Navigator Scraper - Main Entry Point
 """
 from src.scraper import LinkedInScraper
+from src.ApolloScraper import ApolloScraper
 import logging
 import sys
 import time
@@ -183,16 +184,17 @@ def display_menu():
     print("2. Run Snov.io Email Finder (on latest CSV)")
     print("3. Run Hunter.io Email Verification (on latest CSV)")
     print("4. Run Full Pipeline (LinkedIn → Snov.io → Hunter.io)")
+    print("5. Run Apollo Scraper")
     print("0. Exit")
     print("="*50)
     
     while True:
         try:
-            choice = int(input("Enter your choice [0-4]: "))
-            if 0 <= choice <= 4:
+            choice = int(input("Enter your choice [0-5]: "))
+            if 0 <= choice <= 5:
                 return choice
             else:
-                print("Invalid choice. Please enter a number between 0 and 4.")
+                print("Invalid choice. Please enter a number between 0 and 5.")
         except ValueError:
             print("Invalid input. Please enter a number.")
 
@@ -241,6 +243,10 @@ def main():
                         run_hunter_verification(csv_file)
                     else:
                         print("[WARNING] Skipping Hunter.io verification due to email finder failure")
+            
+            elif choice == 5: # Choice to run the Apollo Scrapper
+                print("[INFO] Running Apollo Scraper Pipeline...")
+                ApolloScraper()
             
             if choice != 0 and not get_yes_no_input("Would you like to return to the main menu?"):
                 print("[INFO] Exiting program. Goodbye!")
