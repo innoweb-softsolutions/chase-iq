@@ -14,6 +14,7 @@ import copy
 import csv
 import os
 import re
+import traceback
 
 # Fills in the user details and presses login
 def login_google(browser):
@@ -186,27 +187,56 @@ def ApolloScraper():
     else:
         print(f"[INFO] Successfully loaded .env file from {envPath}")
 
-    browser = uc.Chrome()
+    # Use a specific driver path to avoid conflicts with other scrapers
+    options = uc.ChromeOptions()
+    options.add_argument("--user-data-dir=./chrome_profile_apollo")
+    
+    # Create a separate browser instance with unique parameters
+    browser = uc.Chrome(
+        options=options,
+        use_subprocess=True
+    )
 
     try:
         browser.get('https://app.apollo.io/#/login')
-
-        # Find the Login with Google button
-        print('[INFO] Attempting Google Login')
-        elem = WebDriverWait(browser, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button.zp-button.zp_GGHzP.zp_Kbe5T.zp_PLp2D.zp_rduLJ.zp_g5xYz"))
-        )
-        elem.click()
+        time.sleep(5)  # Wait to see if we're already logged in
         
-        # Login using Google
-        login_google(browser)
+        # Check if already logged in by looking for a People tab which appears in the dashboard
+        try:
+            # Try to find the People tab or other dashboard element first
+            peopleTab = WebDriverWait(browser, 5).until(
+                EC.presence_of_element_located((By.ID, 'side-nav-people'))
+            )
+            print('[INFO] Already logged in to Apollo')
+        except:
+            # If not found, try logging in
+            print('[INFO] Attempting Google Login')
+            try:
+                elem = WebDriverWait(browser, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.zp-button.zp_GGHzP.zp_Kbe5T.zp_PLp2D.zp_rduLJ.zp_g5xYz"))
+                )
+                elem.click()
+                
+                # Login using Google
+                login_google(browser)
+            except Exception as e:
+                print(f"[WARNING] Could not find login button: {e}")
+                # Try navigating directly to the people section
+                browser.get('https://app.apollo.io/#/people')
+                time.sleep(5)
 
         # Navigate to the appropriate tab
-        peopleTab = WebDriverWait(browser, 30).until(
-            EC.element_to_be_clickable((By.ID, 'side-nav-people'))
-        )
-        peopleTab.click()
-        time.sleep(4)
+        try:
+            peopleTab = WebDriverWait(browser, 30).until(
+                EC.element_to_be_clickable((By.ID, 'side-nav-people'))
+            )
+            peopleTab.click()
+            time.sleep(4)
+        except Exception as e:
+            print(f"[WARNING] Error navigating to People tab: {e}")
+            # Try direct navigation instead
+            browser.get('https://app.apollo.io/#/people')
+            time.sleep(5)
 
         print('[INFO] Setting location filters')
         # Get the filter tabs
@@ -265,8 +295,6 @@ def ApolloScraper():
         cleanFilePath = Path(__file__).resolve().parents[1] / 'output' / 'ApolloCleaned.csv'
         cleanOutputPath = Path(__file__).resolve().parents[1] / 'output' / 'ApolloCleaned_Filtered.csv'
         clean_csv(cleanFilePath, cleanOutputPath)
-
-        # print('Everything went well!')
         
     except FileNotFoundError as fnfe:
         print(fnfe)
@@ -278,7 +306,9 @@ def ApolloScraper():
         print('[ERROR] Timed out while trying to find element.')
 
     except Exception as e:
-        print('[ERROR] An error occurred. Aborting.')
+        print('[ERROR] An error occurred:')
+        import traceback
+        traceback.print_exc()  # Print the full stack trace
 
     finally:
         print("Completed")
