@@ -275,17 +275,79 @@ class LinkedInScraper:
                     break
 
         # Changed from page <= 1 to page <= 20
-        while page <= 5 and len(profile_links) < MAX_PROFILES:
+        while page <= MAX_PAGES and len(profile_links) < MAX_PROFILES:
             print(f"[INFO] Extracting Profile Links from Page {page}...")
 
-            # Add human-like scrolling before extracting profiles
-            self.human_like_scroll()
-            
-            # Original scrolling code - keep for consistency
-            for _ in range(7):
-                self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            # Scroll until no new content loads
+            try:
+                print("[INFO] Starting infinite scroll to bottom...")
                 time.sleep(2)
-            time.sleep(5)
+                last_height = self.driver.execute_script("return document.querySelector('#search-results-container').scrollHeight")
+                while True:
+                    # Scroll to bottom of container
+                    self.driver.execute_script("document.querySelector('#search-results-container').scrollTo(0, document.querySelector('#search-results-container').scrollHeight)")
+                    time.sleep(3)
+                    
+                    # Calculate new scroll height
+                    new_height = self.driver.execute_script("return document.querySelector('#search-results-container').scrollHeight")
+                    
+                    if new_height == last_height:
+                        print("[INFO] Reached bottom of content")
+                        time.sleep(3)
+                        break
+                    last_height = new_height
+                
+                # Scroll back to top in many small increments
+                print("[INFO] Scrolling back to top gradually...")
+                total_height = self.driver.execute_script("return document.querySelector('#search-results-container').scrollHeight")
+                steps = 15  # Increased number of steps
+                for i in range(steps):
+                    # Calculate scroll position with slight randomization
+                    scroll_position = total_height * (steps - i - 1) / steps
+                    scroll_position += random.randint(-50, 50)  # Add small random offset
+                    scroll_position = max(0, min(total_height, scroll_position))  # Ensure within bounds
+                    
+                    self.driver.execute_script(f"document.querySelector('#search-results-container').scrollTo(0, {scroll_position})")
+                    time.sleep(random.uniform(0.8, 1.5))  # Random delay between steps
+                
+                print("[INFO] Waiting for page to stabilize before extracting profiles...")
+                time.sleep(8)
+                
+            except Exception as e:
+                print(f"[WARNING] Error during infinite scroll: {e}")
+                # Fallback to basic scrolling if container not found
+                print("[INFO] Using fallback scroll method...")
+                for _ in range(7):
+                    self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+                    time.sleep(3)
+                
+                # Fallback gradual scroll back up
+                print("[INFO] Scrolling back up gradually (fallback mode)...")
+                total_height = self.driver.execute_script("return document.body.scrollHeight")
+                steps = 15
+                for i in range(steps):
+                    scroll_position = total_height * (steps - i - 1) / steps
+                    scroll_position += random.randint(-50, 50)
+                    scroll_position = max(0, min(total_height, scroll_position))
+                    self.driver.execute_script(f"window.scrollTo(0, {scroll_position})")
+                    time.sleep(random.uniform(0.8, 1.5))
+                
+                time.sleep(8)
+            
+            # Wait for profile elements to be present
+            try:
+                print("[INFO] Waiting for profile elements to load...")
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, "//a[contains(@href, '/sales/lead/')]"))
+                )
+            except Exception as e:
+                print(f"[WARNING] Timeout waiting for profile elements: {e}")
+
+            print("[INFO] Beginning profile extraction...")
+            time.sleep(2)
+
+            # Debug: Take screenshot to verify pagination area
+            take_debug_screenshot(self.driver, f"page_{page}_before_extraction")
 
             # Debug: print a snippet of the page source.
             sample_source = self.driver.page_source[:1000]
@@ -312,23 +374,55 @@ class LinkedInScraper:
                 self.driver.refresh()
                 time.sleep(10)
 
-            next_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class, 'artdeco-pagination__button--next')]")
-            if next_buttons and next_buttons[0].is_enabled():
+            # Try multiple different selectors for the next button
+            next_button_found = False
+            
+            # List of possible XPath selectors for the next button
+            next_button_selectors = [
+                "//button[contains(@class, 'artdeco-pagination__button--next')]",
+                "//li[contains(@class, 'artdeco-pagination__button--next')]/button",
+                "//button[@aria-label='Next']",
+                "//button[contains(text(), 'Next')]",
+                "//span[contains(@class, 'artdeco-button__text') and text()='Next']/parent::button"
+            ]
+            
+            for selector in next_button_selectors:
+                next_buttons = self.driver.find_elements(By.XPATH, selector)
+                if next_buttons and next_buttons[0].is_enabled():
+                    try:
+                        # Try scrolling to make the button visible first
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", next_buttons[0])
+                        time.sleep(1)
+                        
+                        # Take a screenshot before clicking
+                        take_debug_screenshot(self.driver, f"page_{page}_next_button_found")
+                        
+                        next_buttons[0].click()
+                        page += 1
+                        # Update the last page in history
+                        if self.current_url:
+                            self.scrape_history[self.current_url]['last_page'] = page
+                            self._save_scrape_history()
+                        # Add random delay after clicking next page button
+                        time.sleep(5 + random.uniform(1, 3))
+                        next_button_found = True
+                        break
+                    except Exception as e:
+                        print(f"[WARNING] Error clicking next button with selector {selector}: {e}")
+            
+            if not next_button_found:
                 try:
-                    next_buttons[0].click()
+                    # Last resort: try JavaScript approach to go to next page
+                    print("[INFO] Trying JavaScript pagination approach...")
+                    self.driver.execute_script("document.querySelector('button.artdeco-pagination__button--next').click();")
                     page += 1
-                    # Update the last page in history
                     if self.current_url:
                         self.scrape_history[self.current_url]['last_page'] = page
                         self._save_scrape_history()
-                    # Add random delay after clicking next page button
                     time.sleep(5 + random.uniform(1, 3))
                 except Exception as e:
-                    print("[WARNING] Error clicking next button:", e)
+                    print("[INFO] No more pages or pagination failed. Breaking loop.")
                     break
-            else:
-                print("[INFO] No more pages.")
-                break
 
         print(f"[OK] Extracted {len(profile_links)} profile links in total.")
         

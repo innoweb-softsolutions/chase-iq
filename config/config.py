@@ -14,5 +14,6 @@ USER_AGENT_ROTATION = True
 
 # Scraping Settings
 MAX_PROFILES = 100
+MAX_PAGES = 2  # Maximum number of pages to scrape
 PAGE_LOAD_TIMEOUT = 30
 DELAY_BETWEEN_REQUESTS = 3  # seconds

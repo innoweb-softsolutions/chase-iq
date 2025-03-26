@@ -9,9 +9,6 @@ import os
 import subprocess
 import glob
 
-# Import the configuration
-from config.config import SALES_NAV_URL, SALES_NAV_ADDITIONAL_URLS
-
 # Set up logging
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
@@ -49,30 +46,9 @@ def run_linkedin_scraper():
         # Initialize and login
         scraper = LinkedInScraper()
         scraper.login()
-        
+        from config.config import SALES_NAV_URL
         # Check if a different URL should be used
         search_url = SALES_NAV_URL
-        if SALES_NAV_ADDITIONAL_URLS:
-            print("\n[INFO] Available search URLs:")
-            print(f"0. Default: {SALES_NAV_URL[:60]}...")
-            for i, url in enumerate(SALES_NAV_ADDITIONAL_URLS, 1):
-                print(f"{i}. {url[:60]}...")
-            
-            while True:
-                choice = input("\n[ACTION] Select a search URL [0-{}] or press Enter for default: ".format(len(SALES_NAV_ADDITIONAL_URLS)))
-                if not choice:  # Empty input = default
-                    break
-                try:
-                    choice_idx = int(choice)
-                    if choice_idx == 0:
-                        break
-                    elif 1 <= choice_idx <= len(SALES_NAV_ADDITIONAL_URLS):
-                        search_url = SALES_NAV_ADDITIONAL_URLS[choice_idx-1]
-                        break
-                    else:
-                        print(f"[WARNING] Invalid choice. Please enter a number between 0 and {len(SALES_NAV_ADDITIONAL_URLS)}")
-                except ValueError:
-                    print("[WARNING] Invalid input. Please enter a number.")
         
         # Check if this URL was previously scraped and get starting page
         start_page = scraper.check_previous_scrape(search_url)
