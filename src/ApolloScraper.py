@@ -12,6 +12,7 @@ import time
 import copy
 import csv
 import os
+import re
 
 
 # Fills in the user details and presses login
@@ -93,6 +94,10 @@ def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
         # Assuming there are 25 records in each page
         if(shouldCollectEmail):
             print('[INFO] Collecting Emails')
+            # Wait for the loading to stop before collecting the buttons
+            WebDriverWait(browser, 10).until(
+                EC.presence_of_element_located((By.ID, 'table-row-0'))
+            )
             show_all_emails(browser)
         else:
             print('[INFO] Skipping email collection (enable from settings)')
@@ -112,12 +117,22 @@ def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
             if(len(firstRow.find_elements(By.CSS_SELECTOR, "i.zp-icon.apollo-icon.apollo-icon-linkedin")) > 0):
                 linkedInHref = firstRow.find_element(By.CSS_SELECTOR, "i.zp-icon.apollo-icon.apollo-icon-linkedin").find_element(By.XPATH, "..").get_attribute("href")
             currRowData[6] = linkedInHref
-            
             # There tends to be an empty element at the start of each row
             currRowData.pop(0)
+            
+            # Check if the email is personal and discard if so
+            email_regex = r'\b[A-Za-z0-9._%+-]+@(gmail\.com|hotmail\.com|outlook\.com|yahoo\.com|aol\.com)\b'
+            if(currRowData[3] != 'Access email' and re.match(currRowData[3], email_regex)):
+                continue
+
             dataList.append(currRowData)
             # Now for the cleaned data
             currRowCleaned = copy.deepcopy(currRowData)
+            firstName = currRowCleaned[0].split(' ')[0]
+            lastName = currRowCleaned[0].split(' ')[-1]
+            currRowCleaned.pop(0)
+            currRowCleaned.insert(0, lastName)
+            currRowCleaned.insert(0, firstName)
             currRowCleaned.pop()
             currRowCleaned.pop()
             currRowCleaned.pop()
