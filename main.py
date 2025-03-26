@@ -9,6 +9,9 @@ import os
 import subprocess
 import glob
 
+# Import the configuration
+from config.config import SALES_NAV_URL, SALES_NAV_ADDITIONAL_URLS
+
 # Set up logging
 os.makedirs("logs", exist_ok=True)
 logging.basicConfig(
@@ -47,9 +50,42 @@ def run_linkedin_scraper():
         scraper = LinkedInScraper()
         scraper.login()
         
+        # Check if a different URL should be used
+        search_url = SALES_NAV_URL
+        if SALES_NAV_ADDITIONAL_URLS:
+            print("\n[INFO] Available search URLs:")
+            print(f"0. Default: {SALES_NAV_URL[:60]}...")
+            for i, url in enumerate(SALES_NAV_ADDITIONAL_URLS, 1):
+                print(f"{i}. {url[:60]}...")
+            
+            while True:
+                choice = input("\n[ACTION] Select a search URL [0-{}] or press Enter for default: ".format(len(SALES_NAV_ADDITIONAL_URLS)))
+                if not choice:  # Empty input = default
+                    break
+                try:
+                    choice_idx = int(choice)
+                    if choice_idx == 0:
+                        break
+                    elif 1 <= choice_idx <= len(SALES_NAV_ADDITIONAL_URLS):
+                        search_url = SALES_NAV_ADDITIONAL_URLS[choice_idx-1]
+                        break
+                    else:
+                        print(f"[WARNING] Invalid choice. Please enter a number between 0 and {len(SALES_NAV_ADDITIONAL_URLS)}")
+                except ValueError:
+                    print("[WARNING] Invalid input. Please enter a number.")
+        
+        # Check if this URL was previously scraped and get starting page
+        start_page = scraper.check_previous_scrape(search_url)
+        
+        # Navigate to the selected search URL if it's different from the default
+        if search_url != SALES_NAV_URL:
+            print(f"[INFO] Navigating to selected search URL...")
+            scraper.driver.get(search_url)
+            time.sleep(10)
+        
         # Extract profile links
         print("[INFO] Extracting profile links from search results...")
-        profile_links = scraper.get_profile_links()
+        profile_links = scraper.get_profile_links(start_page=start_page)
         
         if len(profile_links) == 0:
             print("[ERROR] No profile links found. Exiting.")

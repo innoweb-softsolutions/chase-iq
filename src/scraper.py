@@ -13,6 +13,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
 import logging
+import json
 
 from config.config import *
 from src.utils.helpers import take_debug_screenshot, extract_email, extract_website
@@ -23,6 +24,9 @@ class LinkedInScraper:
     def __init__(self):
         """Initialize the scraper with browser settings."""
         self.setup_browser()
+        self.scrape_history_file = "output/scrape_history.json"
+        self.scrape_history = self._load_scrape_history()
+        self.current_url = None
         
     def setup_browser(self):
         """Set up the undetected Chrome browser."""
@@ -33,6 +37,62 @@ class LinkedInScraper:
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-extensions")
         self.driver = uc.Chrome(options=options)
+        
+    def _load_scrape_history(self):
+        """Load scraping history from file."""
+        if os.path.exists(self.scrape_history_file):
+            try:
+                with open(self.scrape_history_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"[WARNING] Error loading scrape history: {e}")
+                return {}
+        return {}
+    
+    def _save_scrape_history(self):
+        """Save scraping history to file."""
+        os.makedirs(os.path.dirname(self.scrape_history_file), exist_ok=True)
+        try:
+            with open(self.scrape_history_file, 'w') as f:
+                json.dump(self.scrape_history, f)
+            print(f"[INFO] Scrape history saved.")
+        except Exception as e:
+            print(f"[WARNING] Error saving scrape history: {e}")
+    
+    def check_previous_scrape(self, url):
+        """Check if URL was previously scraped and prompt user for action."""
+        self.current_url = url
+        
+        if url in self.scrape_history:
+            last_page = self.scrape_history[url].get('last_page', 1)
+            last_scraped = self.scrape_history[url].get('last_scraped', 'unknown date')
+            
+            print(f"[INFO] This URL was previously scraped (reached page {last_page}) on {last_scraped}.")
+            
+            while True:
+                choice = input("[ACTION] Do you want to start from scratch or continue where you left off? (scratch/continue): ").lower().strip()
+                
+                if choice in ['scratch', 's']:
+                    # Reset the history for this URL
+                    self.scrape_history[url] = {
+                        'last_page': 1,
+                        'last_scraped': time.strftime('%Y-%m-%d %H:%M:%S')
+                    }
+                    return 1  # Start from page 1
+                    
+                elif choice in ['continue', 'c']:
+                    self.scrape_history[url]['last_scraped'] = time.strftime('%Y-%m-%d %H:%M:%S')
+                    return last_page  # Continue from last page
+                    
+                else:
+                    print("[WARNING] Invalid choice. Please enter 'scratch' or 'continue'.")
+        else:
+            # First time scraping this URL
+            self.scrape_history[url] = {
+                'last_page': 1,
+                'last_scraped': time.strftime('%Y-%m-%d %H:%M:%S')
+            }
+            return 1  # Start from page 1
         
     def login(self):
         """Handle LinkedIn login through cookies or credentials."""
@@ -188,17 +248,34 @@ class LinkedInScraper:
         with open(filename, "r") as f:
             return set(line.strip() for line in f if line.strip())
     
-    def get_profile_links(self):
+    def get_profile_links(self, start_page=1):
         """Extract LinkedIn lead profile URLs from Sales Navigator search results."""
         profile_links = []
-        page = 1
+        page = start_page
         
         # Load previously scraped profiles to avoid duplicates
         previously_scraped = self.load_scraped_profiles()
         print(f"[INFO] Found {len(previously_scraped)} previously scraped profiles to avoid duplicates")
+        
+        if page > 1:
+            print(f"[INFO] Starting from page {page} based on previous scraping session")
+            # Navigate to the starting page
+            for p in range(1, page):
+                try:
+                    print(f"[INFO] Navigating to page {p}...")
+                    next_buttons = self.driver.find_elements(By.XPATH, "//button[contains(@class, 'artdeco-pagination__button--next')]")
+                    if next_buttons and next_buttons[0].is_enabled():
+                        next_buttons[0].click()
+                        time.sleep(5 + random.uniform(1, 3))
+                    else:
+                        print("[WARNING] Couldn't navigate to the requested start page. Starting from current page.")
+                        break
+                except Exception as e:
+                    print(f"[WARNING] Error navigating to start page: {e}")
+                    break
 
         # Changed from page <= 1 to page <= 20
-        while page <= 20 and len(profile_links) < MAX_PROFILES:
+        while page <= 5 and len(profile_links) < MAX_PROFILES:
             print(f"[INFO] Extracting Profile Links from Page {page}...")
 
             # Add human-like scrolling before extracting profiles
@@ -240,6 +317,10 @@ class LinkedInScraper:
                 try:
                     next_buttons[0].click()
                     page += 1
+                    # Update the last page in history
+                    if self.current_url:
+                        self.scrape_history[self.current_url]['last_page'] = page
+                        self._save_scrape_history()
                     # Add random delay after clicking next page button
                     time.sleep(5 + random.uniform(1, 3))
                 except Exception as e:
@@ -337,6 +418,8 @@ class LinkedInScraper:
     def cleanup(self):
         """Clean up resources."""
         try:
+            # Save the final scrape history before quitting
+            self._save_scrape_history()
             self.driver.quit()
             print("[OK] Browser closed")
         except Exception as e:
