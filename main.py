@@ -2,6 +2,7 @@
 LinkedIn Sales Navigator Scraper - Main Entry Point
 """
 from src.scraper import LinkedInScraper
+from src.SalesNav_CSVCleaner import process_csv
 from src.ApolloScraper import ApolloScraper
 import logging
 import sys
@@ -84,6 +85,23 @@ def run_linkedin_scraper():
                 csv_file = get_latest_csv_file(prefix="linkedin_leads_")
                 
             logging.info(f"Successfully scraped {len(leads)} leads and saved to {csv_file}")
+            
+            # Post-process the LinkedIn Sales Navigator CSV
+            if csv_file:
+                logging.info(f"Post-processing LinkedIn leads with SalesNav_CSVCleaner...")
+                output_folder = Path("output")
+                try:
+                    process_csv(csv_file, output_folder)
+                    # Get the latest processed file for future steps
+                    processed_csv = get_latest_csv_file(directory="output", prefix="processed_leads_")
+                    if processed_csv:
+                        logging.info(f"Successfully post-processed LinkedIn leads: {processed_csv}")
+                        # Use the processed file for future steps
+                        csv_file = processed_csv
+                    else:
+                        logging.warning("Post-processing completed but couldn't locate the output file")
+                except Exception as e:
+                    logging.error(f"Error during LinkedIn leads post-processing: {e}")
         else:
             logging.error("No leads were collected.")
     
