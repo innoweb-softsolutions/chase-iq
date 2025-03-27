@@ -111,7 +111,7 @@ def show_all_emails(browser):
 
     for emailButton in allEmailButtons:
         emailButton.click()
-        time.sleep(6)
+        time.sleep(12)
 
 def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
     # Set based on the free limit of the service
