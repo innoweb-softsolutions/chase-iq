@@ -55,6 +55,17 @@ def location_filter(browser, locationTab):
 def job_filter(browser, jobTab):
     jobTab.click()
 
+    try:
+        checkboxInput = WebDriverWait(browser, 10).until(
+            EC.presence_of_element_located((By.XPATH, "//span[text()='Is not any of']/preceding::div[@data-input='checkbox']"))
+        )
+        data_cy_status = checkboxInput.get_attribute('data-cy-status')
+        if data_cy_status == 'unchecked':
+            checkboxInput.click()
+    
+    except:
+        print('Using layout where the inputs are regular')
+
     # Insert the job titles as filters
     inputFields = WebDriverWait(browser, 10).until(
         EC.presence_of_all_elements_located((By.CLASS_NAME, 'Select-input'))
@@ -99,7 +110,7 @@ def industryFilter(browser, industryTab):
 
     industryKeywords = os.getenv('INDUSTRY_KEYWORDS')
     for industry in industryKeywords.split(',') if industryKeywords else []:
-        inputFields[1].send_keys(industry)
+        inputFields[0].send_keys(industry)
         first_child = WebDriverWait(browser, 10).until(
             EC.element_to_be_clickable((By.CLASS_NAME, "Select-option"))
         )
@@ -111,7 +122,9 @@ def show_all_emails(browser):
 
     for emailButton in allEmailButtons:
         emailButton.click()
-        time.sleep(12)
+        WebDriverWait(browser, 10).until(
+            EC.invisibility_of_element_located(emailButton)
+        )
 
 def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
     # Set based on the free limit of the service
