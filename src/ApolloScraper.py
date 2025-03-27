@@ -15,8 +15,8 @@ import csv
 import os
 import re
 
-# Fills in the user details and presses login
 def login_google(browser):
+    """Fills in the user details and handles 2-factor authentication"""
     loginID = WebDriverWait(browser, 10).until(
         EC.element_to_be_clickable((By.ID, "identifierId"))
     )
@@ -28,6 +28,50 @@ def login_google(browser):
     )
     passField.send_keys(os.getenv('GOOGLE_PASSWORD'))
     passField.send_keys(Keys.ENTER)
+    
+    # Wait for potential 2-factor authentication
+    print("[INFO] Checking for 2-step verification...")
+    time.sleep(5)  # Give the page a moment to transition
+    
+    # Better detection method using URL patterns and page content
+    try:
+        # Wait up to 20 seconds to see if we land on a verification page
+        for i in range(4):  # Check a few times
+            current_url = browser.current_url
+            page_source = browser.page_source.lower()
+            
+            # Check for common verification indicators
+            verification_indicators = [
+                "challenge" in current_url,
+                "signin/v2/challenge" in current_url,
+                "2-step verification" in page_source,
+                "verification" in page_source and "step" in page_source,
+                "open the gmail app" in page_source,
+                "google sent a notification" in page_source
+            ]
+            
+            if any(verification_indicators):
+                print("[INFO] 2-step verification required. Waiting for manual verification (maximum 3 minutes)...")
+                
+                # Wait for up to 3 minutes for manual verification
+                for i in range(18):  # 18 x 10 seconds = 3 minutes
+                    print(f"[INFO] Waiting for verification... ({i+1}/18)")
+                    # Check if we've moved past the verification page
+                    if not any(indicator in browser.current_url.lower() for indicator in ["challenge", "signin/v2"]):
+                        print("[INFO] Verification complete. Proceeding...")
+                        return
+                    time.sleep(10)
+                
+                print("[WARNING] Verification timeout reached. The script will proceed but may fail if verification wasn't completed.")
+                return
+            
+            time.sleep(5)  # Wait 5 seconds between checks
+        
+        # If we've reached this point, no verification was needed
+        print("[INFO] No 2-step verification detected or already completed.")
+    except Exception as e:
+        print(f"[WARNING] Error during verification check: {e}")
+        print("[INFO] Continuing with login attempt...")
 
 # For some reason, the location filters here require that you press them
 # This means that unlike the other filters, you need to use ActionChains to simulate user interaction
@@ -291,6 +335,15 @@ def ApolloScraper():
     except Exception as e:
         print('[ERROR] An error occurred. Aborting.')
 
+    # At the end of the main try-except-finally block in ApolloScraper function
     finally:
-        print("Completed")
-        browser.quit()
+        try:
+            print("Completed")
+            if 'browser' in locals() and browser:
+                try:
+                    browser.quit()
+                    print("[INFO] Browser closed")
+                except Exception as e:
+                    print(f"[INFO] Browser may have already closed: {e}")
+        except Exception as e:
+            print(f"[WARNING] Error during cleanup: {e}")

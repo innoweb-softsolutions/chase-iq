@@ -14,6 +14,8 @@ import threading
 import pandas as pd
 import argparse
 from pathlib import Path
+from src.utils.file_manager import FileManager
+import shutil
 
 # Set up logging
 os.makedirs("logs", exist_ok=True)
@@ -45,7 +47,7 @@ def get_latest_csv_file(directory="output", prefix=None):
     logging.info(f"Using latest file: {latest_file}")
     return latest_file
 
-def run_linkedin_scraper():
+def run_linkedin_scraper(file_manager):
     """Run LinkedIn Sales Navigator scraper and return the path to the saved CSV file."""
     logging.info("Starting LinkedIn Sales Navigator Scraper...")
     scraper = None
@@ -76,28 +78,34 @@ def run_linkedin_scraper():
         
         # Save results to CSV
         if leads:
-            timestamp = time.strftime('%Y%m%d_%H%M%S')
-            csv_file = f"output/linkedin_leads_{timestamp}.csv"
-            scraper.save_to_csv(leads)
+            # Use file manager to get path
+            csv_file = file_manager.get_linkedin_path()
             
-            # Try to get the latest CSV file if the save_to_csv doesn't return the path
-            if csv_file is None:
-                csv_file = get_latest_csv_file(prefix="linkedin_leads_")
-                
+            # Create DataFrame
+            df = pd.DataFrame(leads)
+            df.to_csv(str(csv_file), index=False)
+            
             logging.info(f"Successfully scraped {len(leads)} leads and saved to {csv_file}")
+            
+            # Save reference to latest file
+            file_manager.save_latest_reference(csv_file, "linkedin")
             
             # Post-process the LinkedIn Sales Navigator CSV
             if csv_file:
                 logging.info(f"Post-processing LinkedIn leads with SalesNav_CSVCleaner...")
-                output_folder = Path("output")
+                output_folder = Path(os.path.dirname(csv_file)) / "processed"
+                os.makedirs(output_folder, exist_ok=True)
+                
                 try:
+                    processed_file = file_manager.get_processed_path(source="linkedin")
                     process_csv(csv_file, output_folder)
-                    # Get the latest processed file for future steps
-                    processed_csv = get_latest_csv_file(directory="output", prefix="processed_leads_")
-                    if processed_csv:
+                    # Use most recent processed file
+                    processed_csv = file_manager.get_processed_path(source="linkedin")
+                    if processed_csv.exists():
                         logging.info(f"Successfully post-processed LinkedIn leads: {processed_csv}")
                         # Use the processed file for future steps
                         csv_file = processed_csv
+                        file_manager.save_latest_reference(csv_file, "linkedin_processed")
                     else:
                         logging.warning("Post-processing completed but couldn't locate the output file")
                 except Exception as e:
@@ -116,23 +124,36 @@ def run_linkedin_scraper():
     
     return csv_file
 
-def run_apollo_scraper():
+def run_apollo_scraper(file_manager):
     """Run Apollo scraper and return the path to the saved CSV file."""
     logging.info("Running Apollo Scraper...")
     try:
         ApolloScraper()
-        # The Apollo scraper typically saves files with a pattern like 'ApolloCleaned_Filtered.csv'
-        csv_file = get_latest_csv_file(prefix="ApolloCleaned_Filtered")
-        if csv_file:
-            logging.info(f"Apollo scraping complete. Results saved to {csv_file}")
+        
+        # Find the Apollo output file - first check for specific naming pattern
+        apollo_base_dir = os.path.join(os.path.dirname(file_manager.base_dir), "output")
+        apollo_files = [f for f in os.listdir(apollo_base_dir) if f.startswith("ApolloCleaned_Filtered")]
+        
+        if apollo_files:
+            # Sort by modification time (newest first)
+            apollo_files.sort(key=lambda x: os.path.getmtime(os.path.join(apollo_base_dir, x)), reverse=True)
+            source_file = os.path.join(apollo_base_dir, apollo_files[0])
+            
+            # Copy to our organized directory
+            destination_file = file_manager.get_apollo_path(apollo_files[0])
+            shutil.copy2(source_file, destination_file)
+            
+            logging.info(f"Apollo scraping complete. Results saved to {destination_file}")
+            file_manager.save_latest_reference(destination_file, "apollo")
+            return destination_file
         else:
             logging.warning("Apollo scraping complete, but couldn't locate the output file.")
-        return csv_file
+            return None
     except Exception as e:
         logging.error(f"An error occurred during Apollo scraping: {e}")
         return None
 
-def run_snovio_email_finder(csv_file):
+def run_snovio_email_finder(csv_file, file_manager):
     """Run Snov.io email finder on a CSV file."""
     if csv_file is None:
         logging.warning("No CSV file provided for Snov.io processing")
@@ -152,23 +173,38 @@ def run_snovio_email_finder(csv_file):
             logging.error("Could not find Snov.io email finder script")
             return None
             
-        csv_filename = os.path.basename(csv_file)
-        subprocess.run(["python", snov_script_path, "--file", csv_filename], check=True)
+        # Copy file to processed directory
+        output_file = file_manager.get_processed_path(source="snov")
+        
+        # Make sure directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Copy source file to output location
+        shutil.copy2(csv_file, output_file)
+        
+        # Run the Snov.io email finder directly on the output file
+        output_file_str = str(output_file)
+        
+        # Call the script with the actual file path
+        subprocess.run(["python", snov_script_path, "--file", output_file_str], check=False)
         logging.info("Snov.io email finder complete.")
+        
+        # Save reference to latest file
+        file_manager.save_latest_reference(output_file, "snov_processed")
         
         # Run email pattern generation as fallback
         pattern_script_path = os.path.join(script_dir, "src", "email_pattern_generator.py")
         if os.path.exists(pattern_script_path):
             logging.info("Running email pattern generation as fallback...")
-            subprocess.run(["python", pattern_script_path, "--file", csv_filename], check=True)
+            subprocess.run(["python", pattern_script_path, "--file", output_file_str], check=False)
             logging.info("Email pattern generation complete.")
             
-        return csv_file
+        return output_file
     except Exception as e:
         logging.error(f"Error during Snov.io processing: {e}")
         return None
 
-def run_hunter_verification(csv_file):
+def run_hunter_verification(csv_file, file_manager):
     """Run Hunter.io email verification on a CSV file."""
     if csv_file is None:
         logging.warning("No CSV file provided for Hunter.io verification")
@@ -187,26 +223,69 @@ def run_hunter_verification(csv_file):
         if not os.path.exists(verifier_script_path):
             logging.error("Could not find Hunter.io email verifier script")
             return False
+        
+        # Copy file to processed directory
+        output_file = file_manager.get_processed_path(source="hunter")
+        
+        # Make sure directory exists
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        
+        # Copy source file to output location
+        shutil.copy2(csv_file, output_file)
+        
+        # Convert Path to string
+        output_file_str = str(output_file)
             
-        csv_filename = os.path.basename(csv_file)
-        subprocess.run(["python", verifier_script_path, "--file", csv_filename], check=True)
+        # Call the script with the actual file path
+        subprocess.run(["python", verifier_script_path, "--file", output_file_str], check=False)
         logging.info("Email verification complete.")
+        
+        # Save reference to latest file
+        file_manager.save_latest_reference(output_file, "verified")
+        
         return True
     except Exception as e:
         logging.error(f"Error during Hunter.io verification: {e}")
         return False
 
 def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.csv"):
-    """Merge LinkedIn and Apollo CSV files."""
-    # Initialize with empty DataFrames in case one source fails
+    """Merge LinkedIn and Apollo CSV files with proper column standardization."""
+    # Initialize with empty DataFrames
     linkedin_df = pd.DataFrame()
     apollo_df = pd.DataFrame()
+    
+    # Standard column mapping for both sources
+    standard_columns = {
+        'first_name': 'first_name',
+        'last_name': 'last_name',
+        'Role': 'role',
+        'Emails': 'email',
+        'Email': 'email',
+        'Domain': 'domain',
+        'Company': 'company',
+        'Phone': 'phone',
+        'Website': 'website',
+        'Misc': 'misc',
+        'Profile URL': 'linkedin_url',
+        'Title': 'role'  # Map Title to role for consistency
+    }
     
     # Read LinkedIn CSV if available
     if linkedin_csv and os.path.exists(linkedin_csv):
         try:
             linkedin_df = pd.read_csv(linkedin_csv)
-            linkedin_df['Source'] = 'LinkedIn'
+            
+            # If Name column exists but first_name/last_name don't, split it
+            if 'Name' in linkedin_df.columns and 'first_name' not in linkedin_df.columns:
+                # Split Name into first and last name
+                linkedin_df[['first_name', 'last_name']] = linkedin_df['Name'].str.split(' ', n=1, expand=True)
+            
+            # Rename columns to standard names
+            for old_col, new_col in standard_columns.items():
+                if old_col in linkedin_df.columns:
+                    linkedin_df = linkedin_df.rename(columns={old_col: new_col})
+            
+            linkedin_df['source'] = 'LinkedIn'
             logging.info(f"Read {len(linkedin_df)} rows from LinkedIn CSV")
         except Exception as e:
             logging.error(f"Error reading LinkedIn CSV: {e}")
@@ -215,7 +294,13 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
     if apollo_csv and os.path.exists(apollo_csv):
         try:
             apollo_df = pd.read_csv(apollo_csv)
-            apollo_df['Source'] = 'Apollo'
+            
+            # Rename columns to standard names
+            for old_col, new_col in standard_columns.items():
+                if old_col in apollo_df.columns:
+                    apollo_df = apollo_df.rename(columns={old_col: new_col})
+            
+            apollo_df['source'] = 'Apollo'
             logging.info(f"Read {len(apollo_df)} rows from Apollo CSV")
         except Exception as e:
             logging.error(f"Error reading Apollo CSV: {e}")
@@ -226,36 +311,54 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         return None
     
     try:
-        # Standardize column names for LinkedIn data
-        if not linkedin_df.empty:
-            linkedin_columns = {'Name': 'Name', 'Title': 'Title', 'Company': 'Company', 
-                              'Email': 'Email', 'Profile URL': 'LinkedIn URL', 'Website': 'Website'}
-            
-            for old_col, new_col in linkedin_columns.items():
-                if old_col in linkedin_df.columns:
-                    linkedin_df = linkedin_df.rename(columns={old_col: new_col})
+        # Combine dataframes
+        # First, ensure both have same columns for clean concat
+        all_columns = set(list(linkedin_df.columns) + list(apollo_df.columns))
         
-        # Standardize column names for Apollo data
-        if not apollo_df.empty:
-            apollo_columns = {'first_name': 'First Name', 'last_name': 'Last Name', 
-                             'title': 'Title', 'email': 'Email', 'phone': 'Phone', 'domain': 'Website'}
-            
-            for old_col, new_col in apollo_columns.items():
-                if old_col in apollo_df.columns:
-                    apollo_df = apollo_df.rename(columns={old_col: new_col})
-            
-            # For Apollo, combine first and last name if separate
-            if 'First Name' in apollo_df.columns and 'Last Name' in apollo_df.columns:
-                apollo_df['Name'] = apollo_df['First Name'] + ' ' + apollo_df['Last Name']
+        # Add missing columns with None values
+        for col in all_columns:
+            if col not in linkedin_df.columns:
+                linkedin_df[col] = None
+            if col not in apollo_df.columns:
+                apollo_df[col] = None
+        
+        # Ensure critical columns exist
+        required_columns = ['first_name', 'last_name', 'email', 'company', 'role']
+        for col in required_columns:
+            if col not in all_columns:
+                logging.warning(f"Missing required column '{col}' - adding empty column")
+                linkedin_df[col] = None
+                apollo_df[col] = None
+        
+        # Convert columns to appropriate types
+        for df in [linkedin_df, apollo_df]:
+            for col in df.columns:
+                # Convert to string to avoid type errors, except for boolean columns
+                if col != 'Email_Verified':
+                    df[col] = df[col].astype(str).replace({'nan': '', 'None': '', 'NaN': ''})
         
         # Combine dataframes
         merged_df = pd.concat([linkedin_df, apollo_df], ignore_index=True)
         
+        # Clean and standardize emails
+        merged_df['email'] = merged_df['email'].astype(str)
+        # Remove "+1" or other suffixes from emails
+        merged_df['email'] = merged_df['email'].str.replace(r'\+\d+$', '', regex=True)
+        
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
+        # Select only the key columns for cleaner output
+        final_columns = [
+            'first_name', 'last_name', 'role', 'company', 'email', 
+            'phone', 'website', 'domain', 'linkedin_url', 'source'
+        ]
+        
+        # Only keep columns that exist in our data
+        output_columns = [col for col in final_columns if col in merged_df.columns]
+        
         # Save to CSV
-        merged_df.to_csv(output_file, index=False)
+        merged_df[output_columns].to_csv(output_file, index=False)
         logging.info(f"Merged data saved to {output_file} ({len(merged_df)} rows)")
         return output_file
     except Exception as e:
@@ -266,9 +369,16 @@ def run_full_pipeline():
     """Run the full pipeline with LinkedIn and Apollo in parallel."""
     logging.info("Running full pipeline...")
     
+    # Initialize file manager
+    file_manager = FileManager()
+    
     # Create threads for LinkedIn and Apollo scrapers
-    linkedin_thread = threading.Thread(target=lambda: globals().update(linkedin_csv=run_linkedin_scraper()))
-    apollo_thread = threading.Thread(target=lambda: globals().update(apollo_csv=run_apollo_scraper()))
+    linkedin_thread = threading.Thread(
+        target=lambda: globals().update(linkedin_csv=run_linkedin_scraper(file_manager))
+    )
+    apollo_thread = threading.Thread(
+        target=lambda: globals().update(apollo_csv=run_apollo_scraper(file_manager))
+    )
     
     # Initialize result variables
     globals()['linkedin_csv'] = None
@@ -293,18 +403,21 @@ def run_full_pipeline():
     # Merge results if at least one was successful
     merged_csv = None
     if linkedin_csv or apollo_csv:
-        merged_csv = merge_csv_files(linkedin_csv, apollo_csv)
+        merged_path = file_manager.get_merged_path()
+        merged_csv = merge_csv_files(linkedin_csv, apollo_csv, output_file=str(merged_path))
+        if merged_csv:
+            file_manager.save_latest_reference(merged_csv, "merged")
     else:
         logging.error("Both scrapers failed. No data to process.")
         return
     
     # Process with Snov.io
     if merged_csv:
-        processed_csv = run_snovio_email_finder(merged_csv)
+        processed_csv = run_snovio_email_finder(merged_csv, file_manager)
         
         # Verify with Hunter.io
         if processed_csv:
-            run_hunter_verification(processed_csv)
+            run_hunter_verification(processed_csv, file_manager)
     else:
         logging.error("Merge failed. Cannot continue pipeline.")
 
@@ -312,7 +425,7 @@ def main():
     """Main entry point with command-line argument support."""
     parser = argparse.ArgumentParser(description="LinkedIn and Apollo Lead Generation Pipeline")
     parser.add_argument("--linkedin-only", action="store_true", help="Run only LinkedIn scraper")
-    parser.add_argument("--apollo-only", action="store_true", help="Run only Apollo scraper")
+    parser.add_argument("--apollo-only", action="store_true", help="Run only Apollo scraper") 
     parser.add_argument("--skip-snovio", action="store_true", help="Skip Snov.io email finding")
     parser.add_argument("--skip-hunter", action="store_true", help="Skip Hunter.io email verification")
     parser.add_argument("--input-csv", help="Use existing CSV file instead of scraping")
@@ -323,36 +436,39 @@ def main():
         os.makedirs("output", exist_ok=True)
         os.makedirs("output/screenshots", exist_ok=True)
         
+        # Initialize file manager
+        file_manager = FileManager()
+        
         if args.input_csv:
             # Process existing CSV
             csv_file = args.input_csv
             logging.info(f"Using provided CSV file: {csv_file}")
             
             if not args.skip_snovio:
-                csv_file = run_snovio_email_finder(csv_file)
+                csv_file = run_snovio_email_finder(csv_file, file_manager)
                 
             if not args.skip_hunter and csv_file:
-                run_hunter_verification(csv_file)
+                run_hunter_verification(csv_file, file_manager)
                 
         elif args.linkedin_only:
             # Run only LinkedIn scraper
-            csv_file = run_linkedin_scraper()
+            csv_file = run_linkedin_scraper(file_manager)
             
             if csv_file and not args.skip_snovio:
-                csv_file = run_snovio_email_finder(csv_file)
+                csv_file = run_snovio_email_finder(csv_file, file_manager)
                 
             if csv_file and not args.skip_hunter:
-                run_hunter_verification(csv_file)
+                run_hunter_verification(csv_file, file_manager)
                 
         elif args.apollo_only:
             # Run only Apollo scraper
-            csv_file = run_apollo_scraper()
+            csv_file = run_apollo_scraper(file_manager)
             
             if csv_file and not args.skip_snovio:
-                csv_file = run_snovio_email_finder(csv_file)
+                csv_file = run_snovio_email_finder(csv_file, file_manager)
                 
             if csv_file and not args.skip_hunter:
-                run_hunter_verification(csv_file)
+                run_hunter_verification(csv_file, file_manager)
                 
         else:
             # Run full pipeline by default

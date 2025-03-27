@@ -70,10 +70,23 @@ def process_csv(file_path):
         # Read CSV file
         df = pd.read_csv(file_path)
         
-        # Ensure 'Email' column exists
-        if 'Email' not in df.columns:
+        # Standardize email column name
+        if 'Email' in df.columns and 'email' not in df.columns:
+            df['email'] = df['Email']
+        elif 'Emails' in df.columns and 'email' not in df.columns:
+            df['email'] = df['Emails']
+        
+        # Ensure 'email' column exists
+        if 'email' not in df.columns:
             logger.error(f"CSV is missing required 'Email' column")
             return False
+        
+        # Clean up email values
+        df['email'] = df['email'].astype(str)
+        # Remove "+1" or other suffixes from emails
+        df['email'] = df['email'].str.replace(r'\+\d+$', '', regex=True)
+        # Convert NaN to empty string
+        df['email'] = df['email'].replace({'nan': '', 'None': '', 'NaN': '', 'null': ''})
         
         # Initialize counters
         total_leads = len(df)
@@ -88,7 +101,7 @@ def process_csv(file_path):
         
         # Process each row
         for idx, row in df.iterrows():
-            email = str(row['Email']).strip() if pd.notna(row['Email']) else ""
+            email = str(row['email']).strip()
             
             # Skip empty or N/A emails
             if email.lower() in ['n/a', 'na', '', 'nan', 'none']:
