@@ -8,6 +8,8 @@ from pathlib import Path
 
 "Output CSV FILE STORED IN OUTPUT FOLDER"
 "INPUT command python SalesNav_CSVCleaner.py ../output/(name).csv "
+"Output CSV FILE STORED IN OUTPUT FOLDER"
+"INPUT command python SalesNav_CSVCleaner.py ../output/(name).csv "
 
 def clean_name(full_name):
     """Cleans name by removing initials, suffixes, certifications and nicknames."""
