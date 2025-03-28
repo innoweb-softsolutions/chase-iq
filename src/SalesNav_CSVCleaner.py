@@ -157,9 +157,15 @@ def process_csv(input_file, output_folder):
     df[['first_name', 'last_name']] = df['Name'].astype(str).apply(clean_name).apply(pd.Series)
     df = df.dropna(subset=['first_name', 'last_name'])
 
+    if 'Location' not in df.columns:
+        df['Location'] = "N/A"
+
     # Extract roles
-    df['Role'] = df['Title'].astype(str).apply(extract_role)
-    df = df.dropna(subset=['Role'])
+    df['job_title'] = df['Title'].astype(str).apply(extract_role)
+    df = df.dropna(subset=['job_title'])
+
+    # Ensure company exists (fill with "N/A" if missing)
+    df['Company'] = df['Company'].fillna("N/A")
 
     # Ensure business emails are used, but keep personal emails if a domain exists
     df['Emails'] = df['Email'].apply(lambda x: x if is_business_email(str(x)) else "N/A")
@@ -174,10 +180,10 @@ def process_csv(input_file, output_folder):
     df['Phone'] = 'N/A'
 
     
-    df['Misc'] = df['Profile URL']
+    df['Linkedin_url'] = df['Profile URL']
 
   
-    df = df[['first_name', 'last_name', 'Role', 'Emails', 'Domain', 'Phone', 'Misc']]
+    df = df[['Linkedin_url','first_name', 'last_name', 'Emails', 'Location', 'job_title','Company', 'Domain', 'Phone']]
 
     print(f"Final Row Count: {len(df)}") 
 

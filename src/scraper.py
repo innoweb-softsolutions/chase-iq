@@ -473,11 +473,23 @@ class LinkedInScraper:
                     
                 email = extract_email(self.driver)
                 website = extract_website(self.driver)
+
+                try:
+                # Try to extract the location using the data-anonymize attribute from the provided HTML structure
+                    location_elements = self.driver.find_elements(
+                        By.XPATH,
+                            "//div[contains(@class, 'DBrSNqSibpNQelWwoJTqVASHhrvlEGCmad')]//div[not(contains(., 'connections'))]"
+                        )
+                    location = location_elements[0].text.strip() if location_elements else "N/A"
+                except Exception as e:
+                        print(f"[WARNING] Location extraction error: {e}")
+                        location = "N/A"
                 
                 # Print extracted data for debugging
                 print(f"  - Name: {name}")
                 print(f"  - Title: {title}")
                 print(f"  - Company: {company}")
+                print(f"  - Location: {location}")
                 print(f"  - Email: {email}")
                 print(f"  - Website: {website}")
                 
@@ -485,6 +497,7 @@ class LinkedInScraper:
                     "Name": name,
                     "Title": title,
                     "Company": company,
+                    "Location": location,
                     "Profile URL": profile_url,
                     "Email": email,
                     "Website": website
