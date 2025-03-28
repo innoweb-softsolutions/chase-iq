@@ -130,10 +130,32 @@ def process_csv(file_path):
         # Read CSV file
         df = pd.read_csv(file_path)
         
-        # Ensure required columns exist
-        if 'Email' not in df.columns:
-            logger.error(f"CSV is missing required 'Email' column")
-            return False
+        # Ensure all string columns are properly typed 
+        for col in df.columns:
+            if col != 'Email_Verified' and df[col].dtype != bool:  # Skip boolean columns
+                df[col] = df[col].astype(str).replace({'nan': '', 'None': '', 'NaN': ''})
+        
+        # Check for required columns and add if missing
+        required_columns = ['Name', 'first_name', 'last_name', 'company', 'email', 'website', 'domain']
+        
+        # Add missing columns
+        for col in required_columns:
+            if col not in df.columns:
+                if col == 'Name' and 'first_name' in df.columns and 'last_name' in df.columns:
+                    # Create Name from first_name and last_name
+                    df['Name'] = df['first_name'] + ' ' + df['last_name']
+                elif col == 'company' and 'Company' in df.columns:
+                    # Use Company if company not present
+                    df['company'] = df['Company']
+                elif col == 'domain' and 'Domain' in df.columns:
+                    # Use Domain if domain not present
+                    df['domain'] = df['Domain']
+                elif col == 'email' and 'Email' in df.columns:
+                    # Use Email if email not present
+                    df['email'] = df['Email']
+                else:
+                    logger.warning(f"Adding empty column: {col}")
+                    df[col] = ''
         
         # Initialize counters
         total_leads = len(df)
@@ -148,32 +170,37 @@ def process_csv(file_path):
         
         # Process each row
         for idx, row in df.iterrows():
-            email = str(row['Email']).strip() if pd.notna(row['Email']) else ""
+            email = str(row['email']).strip() if pd.notna(row['email']) else ""
             
             # Only process rows with missing or N/A emails
             if email.lower() in ['n/a', 'na', '', 'nan', 'none']:
                 missing_email_count += 1
                 logger.info(f"Row {idx}: Email is missing, attempting pattern generation")
                 
-                # Parse name into first and last name
-                name = row.get('Name', '')
-                if name:
-                    name_parts = name.split()
-                    first_name = name_parts[0] if name_parts else ""
-                    last_name = name_parts[-1] if len(name_parts) > 1 else ""
-                else:
-                    first_name = ""
-                    last_name = ""
+                # Get first and last name
+                first_name = str(row['first_name']).strip() if pd.notna(row['first_name']) else ""
+                last_name = str(row['last_name']).strip() if pd.notna(row['last_name']) else ""
+                
+                # If missing first/last name but have full name, try to split it
+                if (not first_name or not last_name) and 'Name' in df.columns:
+                    name = str(row['Name']).strip() if pd.notna(row['Name']) else ""
+                    if name and ' ' in name:
+                        name_parts = name.split()
+                        first_name = name_parts[0] if not first_name else first_name
+                        last_name = name_parts[-1] if not last_name else last_name
                 
                 # Get domain from website or company name
                 domain = None
-                website = row.get('Website', '')
-                if website:
+                website = str(row['website']).strip() if 'website' in df.columns and pd.notna(row['website']) else ""
+                if website and website.lower() not in ['n/a', 'na', '', 'nan', 'none']:
                     domain = extract_domain_from_website(website)
                 
+                if not domain and 'domain' in df.columns and pd.notna(row['domain']):
+                    domain = str(row['domain']).strip()
+                
                 if not domain:
-                    company = row.get('Company', '')
-                    if company:
+                    company = str(row['company']).strip() if 'company' in df.columns and pd.notna(row['company']) else ""
+                    if company and company.lower() not in ['n/a', 'na', '', 'nan', 'none']:
                         domain = extract_domain_from_company(company)
                 
                 # Generate and verify email patterns
@@ -192,7 +219,7 @@ def process_csv(file_path):
                     if valid_emails:
                         patterns_verified += 1
                         best_email = valid_emails[0]  # Use the first valid email pattern
-                        df.at[idx, 'Email'] = best_email
+                        df.at[idx, 'email'] = best_email
                         df.at[idx, 'Email_Pattern_Generated'] = True
                         logger.info(f"Found valid email pattern: {best_email}")
                     else:

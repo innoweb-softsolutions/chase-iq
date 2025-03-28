@@ -150,15 +150,36 @@ def process_csv(file_path):
         # Read CSV file
         df = pd.read_csv(file_path)
         
-        # Ensure required columns exist
-        required_columns = ['Name', 'Company', 'Email']
-        for col in required_columns:
-            if col not in df.columns:
-                logger.error(f"CSV is missing required column: '{col}'")
-                return False
+        # Standardize email column name
+        if 'Email' in df.columns and 'email' not in df.columns:
+            df['email'] = df['Email']
+        elif 'Emails' in df.columns and 'email' not in df.columns:
+            df['email'] = df['Emails']
+            
+        # Standardize name columns
+        if 'Name' in df.columns and ('first_name' not in df.columns or 'last_name' not in df.columns):
+            # Split Name into first_name and last_name
+            try:
+                df[['first_name', 'last_name']] = df['Name'].str.split(' ', n=1, expand=True)
+            except:
+                logger.warning("Could not split Name column into first_name and last_name")
+                
+        # Standardize company column
+        if 'Company' in df.columns and 'company' not in df.columns:
+            df['company'] = df['Company']
         
-        # Check for Website column (optional)
-        has_website_column = 'Website' in df.columns
+        # Ensure required columns exist
+        required_columns = ['email', 'first_name', 'last_name', 'company']
+        missing_columns = [col for col in required_columns if col not in df.columns]
+        
+        if missing_columns:
+            logger.error(f"CSV is missing required columns: {', '.join(missing_columns)}")
+            return False
+        
+        # Clean up values
+        for col in df.columns:
+            if df[col].dtype != bool:  # Skip boolean columns
+                df[col] = df[col].astype(str).replace({'nan': '', 'None': '', 'NaN': '', 'null': ''})
         
         # Get Snov.io API access token
         access_token = get_access_token()
@@ -175,33 +196,33 @@ def process_csv(file_path):
         
         # Process each row
         for idx, row in df.iterrows():
-            email = str(row['Email']).strip() if pd.notna(row['Email']) else ""
+            email = str(row['email']).strip()
             
             # Check if email is missing or N/A
             if email.lower() in ['n/a', 'na', '', 'nan', 'none']:
                 missing_email_count += 1
                 
-                name = row['Name']
-                company = row['Company']
-                website = row['Website'] if has_website_column else None
+                first_name = str(row['first_name']).strip()
+                last_name = str(row['last_name']).strip()
+                company = str(row['company']).strip()
+                website = str(row['website']).strip() if 'website' in df.columns else ''
                 
                 # Extract domain from website or company name
                 domain = extract_domain(website, company)
                 
-                if domain:
+                if domain and first_name and last_name:
                     # Try to find email
-                    found_email = find_email(name, domain, access_token)
+                    found_email = find_email(f"{first_name} {last_name}", domain, access_token)
                     
                     if found_email:
                         # Update dataframe with found email
-                        df.at[idx, 'Email'] = found_email
+                        df.at[idx, 'email'] = found_email
                         found_email_count += 1
-                        logger.info(f"Updated email for {name}: {found_email}")
+                        logger.info(f"Updated email for {first_name} {last_name}: {found_email}")
                     else:
-                        logger.info(f"Could not find email for {name} - keeping original value: {email}")
-                        # No need to update df.at[idx, 'Email'] since we want to keep the original value
+                        logger.info(f"Could not find email for {first_name} {last_name} - keeping original value: {email}")
                 else:
-                    logger.warning(f"Could not determine domain for {name} at {company}")
+                    logger.warning(f"Could not determine domain for {first_name} {last_name} at {company}")
                 
             # Add small delay between API calls
             time.sleep(1)
