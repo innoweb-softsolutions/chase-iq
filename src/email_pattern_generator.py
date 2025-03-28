@@ -259,21 +259,31 @@ def main():
     print("LinkedIn Leads Email Pattern Generator")
     print("=" * 60)
     
-    # Get the current script directory
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    # The output directory is one level up and then into output
-    output_dir = os.path.join(os.path.dirname(script_dir), "output")
-    
     if args.file:
         # Process specific file
-        file_path = os.path.join(output_dir, args.file)
+        # Check if the path is absolute or already contains "output"
+        if os.path.isabs(args.file) or 'output' in args.file:
+            file_path = args.file  # Use path as-is
+        else:
+            # Only add output path if not already present
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            output_dir = os.path.join(os.path.dirname(script_dir), "output")
+            file_path = os.path.join(output_dir, args.file)
+            
         if os.path.exists(file_path):
             process_csv(file_path)
         else:
             logger.error(f"File not found: {file_path}")
+            # Log the directory we're looking in to help with debugging
+            logger.error(f"Looking for file in: {os.path.dirname(file_path)}")
     else:
         # Process the most recent CSV file in the output directory
         try:
+            # Get the current script directory
+            script_dir = os.path.dirname(os.path.abspath(__file__))
+            # The output directory is one level up and then into output
+            output_dir = os.path.join(os.path.dirname(script_dir), "output")
+            
             if not os.path.exists(output_dir):
                 logger.error(f"Output directory not found: {output_dir}")
                 return
