@@ -5,6 +5,7 @@ import re
 import time
 import os
 from selenium.webdriver.common.by import By
+import unicodedata
 
 def take_debug_screenshot(driver, name="debug_screenshot"):
     """Take a screenshot for debugging purposes."""
@@ -107,3 +108,63 @@ def extract_website(driver):
         print(f"[WARNING] Website regex extraction error: {e}")
     
     return "N/A"
+
+def extract_linkedin_profile_url(page_source):
+    """Extract LinkedIn profile URL from page source using regex patterns."""
+    try:
+        # Look for public LinkedIn profile URLs in the format linkedin.com/in/username
+        url_patterns = [
+            r'https://www\.linkedin\.com/in/[a-zA-Z0-9\-_%]+/?',  # Standard format
+            r'https://\w+\.linkedin\.com/in/[a-zA-Z0-9\-_%]+/?',  # Country-specific LinkedIn
+            r'linkedin\.com/in/[a-zA-Z0-9\-_%]+/?'                # URL without protocol
+        ]
+        
+        for pattern in url_patterns:
+            matches = re.findall(pattern, page_source)
+            if matches:
+                # Filter out URLs that are likely not profile URLs
+                profile_matches = [u for u in matches if '/in/' in u]
+                if profile_matches:
+                    # Ensure URL has https:// prefix
+                    url = profile_matches[0]
+                    if not url.startswith('http'):
+                        url = 'https://' + url
+                    return url
+                    
+        return None
+    except Exception as e:
+        print(f"[WARNING] Error extracting LinkedIn profile URL via regex: {e}")
+        return None
+
+def remove_emoji(text):
+    """Remove emoji characters from text."""
+    if not text:
+        return text
+        
+    # Method 1: Using regex to remove emoji characters
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"  # emoticons
+        "\U0001F300-\U0001F5FF"  # symbols & pictographs
+        "\U0001F680-\U0001F6FF"  # transport & map symbols
+        "\U0001F700-\U0001F77F"  # alchemical symbols
+        "\U0001F780-\U0001F7FF"  # Geometric Shapes
+        "\U0001F800-\U0001F8FF"  # Supplemental Arrows-C
+        "\U0001F900-\U0001F9FF"  # Supplemental Symbols and Pictographs
+        "\U0001FA00-\U0001FA6F"  # Chess Symbols
+        "\U0001FA70-\U0001FAFF"  # Symbols and Pictographs Extended-A
+        "\U00002702-\U000027B0"  # Dingbats
+        "\U000024C2-\U0001F251" 
+        "]+", flags=re.UNICODE
+    )
+    
+    text = emoji_pattern.sub(r'', text)
+    
+    # Method 2: Remove characters categorized as emoticons by unicodedata
+    cleaned_text = ""
+    for char in text:
+        if not (unicodedata.category(char) == 'So' or  # Symbol, Other
+                unicodedata.category(char) == 'Cn'):   # Not assigned
+            cleaned_text += char
+    
+    return cleaned_text.strip()

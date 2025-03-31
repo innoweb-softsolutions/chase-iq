@@ -14,9 +14,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from fake_useragent import UserAgent
 import logging
 import json
+import re
 
 from config.config import *
-from src.utils.helpers import take_debug_screenshot, extract_email, extract_website
+from src.utils.helpers import take_debug_screenshot, extract_email, extract_website, extract_linkedin_profile_url, remove_emoji
 
 class LinkedInScraper:
     """LinkedIn Sales Navigator Scraper Class"""
@@ -32,12 +33,27 @@ class LinkedInScraper:
         """Set up the undetected Chrome browser."""
         options = uc.ChromeOptions()
         options.headless = HEADLESS_MODE
-        options.add_argument(f"user-agent={UserAgent().random}")
+        
+        # Apply user agent rotation if enabled
+        if USER_AGENT_ROTATION:
+            options.add_argument(f"user-agent={UserAgent().random}")
+        
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-extensions")
+        
+        # Add random viewport size if enabled
+        if 'RANDOM_VIEWPORT_SIZE' in globals() and RANDOM_VIEWPORT_SIZE:
+            width = random.randint(1024, 1920)
+            height = random.randint(768, 1080)
+            options.add_argument(f"--window-size={width},{height}")
+        
         self.driver = uc.Chrome(options=options)
         
+        # Set page load timeout from config
+        if 'REQUEST_TIMEOUT' in globals():
+            self.driver.set_page_load_timeout(REQUEST_TIMEOUT)
+    
     def _load_scrape_history(self):
         """Load scraping history from file."""
         if os.path.exists(self.scrape_history_file):
@@ -211,12 +227,16 @@ class LinkedInScraper:
     
     def human_like_scroll(self):
         """Scroll in a more human-like pattern to avoid detection."""
+        # Check scroll behavior setting
+        if 'SCROLL_BEHAVIOR' in globals() and SCROLL_BEHAVIOR == "none":
+            return
+            
         try:
             # Get current scroll height
             scroll_height = self.driver.execute_script("return document.body.scrollHeight")
             
             # Number of scroll steps (random)
-            steps = random.randint(3, 5)
+            steps = random.randint(3, 7) if SCROLL_BEHAVIOR == "smart" else 3
             
             for i in range(steps):
                 # Random scroll distance (percentage of page)
@@ -225,7 +245,12 @@ class LinkedInScraper:
                 
                 # Scroll down with random pause
                 self.driver.execute_script(f"window.scrollBy(0, {scroll_y});")
-                time.sleep(random.uniform(0.5, 1.5))
+                
+                # Add random delays if enabled
+                if 'ADD_RANDOM_DELAYS' in globals() and ADD_RANDOM_DELAYS:
+                    time.sleep(random.uniform(0.5, 2.0))
+                else:
+                    time.sleep(0.8)
                 
         except Exception as e:
             print(f"[WARNING] Error during scrolling: {e}")
@@ -242,6 +267,10 @@ class LinkedInScraper:
 
     def load_scraped_profiles(self, filename="output/scraped_profiles.txt"):
         """Load previously scraped profile links to avoid duplicates."""
+        # Skip if not enabled in config
+        if 'SKIP_ALREADY_SCRAPED' in globals() and not SKIP_ALREADY_SCRAPED:
+            return set()
+            
         if not os.path.exists(filename):
             return set()
             
@@ -274,7 +303,6 @@ class LinkedInScraper:
                     print(f"[WARNING] Error navigating to start page: {e}")
                     break
 
-        # Changed from page <= 1 to page <= 20
         while page <= MAX_PAGES and len(profile_links) < MAX_PROFILES:
             print(f"[INFO] Extracting Profile Links from Page {page}...")
 
@@ -435,92 +463,249 @@ class LinkedInScraper:
     def scrape_profiles(self, profile_links):
         """Visits each profile and extracts details including name, title, company, email, and website."""
         leads = []
+        
+        # Apply retry configuration for failed profiles
+        max_retries = RETRY_FAILED_PROFILES if 'RETRY_FAILED_PROFILES' in globals() else 0
+        
         for index, profile_url in enumerate(profile_links):
             print(f"[INFO] Visiting Profile {index+1}/{len(profile_links)}: {profile_url}")
-            try:
-                self.driver.get(profile_url)
-                time.sleep(5)  # Give page time to load
+            
+            retry_count = 0
+            success = False
+            
+            while not success and retry_count <= max_retries:
+                if retry_count > 0:
+                    print(f"[INFO] Retry attempt {retry_count} for profile {profile_url}")
                 
-                # Add some human-like behavior
-                self.human_like_scroll()
-                
-                # Updated name extraction for the new Sales Navigator HTML structure
                 try:
-                    # Target the specific h1 with data-x--lead--name attribute
-                    name_elements = self.driver.find_elements(By.XPATH, "//h1[@data-x--lead--name]") or                                    self.driver.find_elements(By.XPATH, "//h1[contains(@class, '_headingText_')]") or                                    self.driver.find_elements(By.XPATH, "//h1[contains(@class, 'profile-info-card__name')]") or                                    self.driver.find_elements(By.XPATH, "//h1")
-                    name = name_elements[0].text.strip() if name_elements else "N/A"
-                except Exception as e:
-                    print(f"[WARNING] Name extraction error: {e}")
-                    name = "N/A"
-                
-                # Updated title extraction
-                try:
-                    # Try various possible selectors for the job title
-                    title_elements = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'profile-info-card__subtitle')]") or                                     self.driver.find_elements(By.XPATH, "//span[contains(@data-anonymize, 'job-title')]") or                                     self.driver.find_elements(By.XPATH, "//span[contains(@class, '_subtitle_')]") or                                     self.driver.find_elements(By.XPATH, "//span[contains(@class, 't-14 t-black')]")
-                    title = title_elements[0].text.strip() if title_elements else "N/A"
-                except Exception as e:
-                    print(f"[WARNING] Title extraction error: {e}")
-                    title = "N/A"
-                
-                # Updated company extraction
-                try:
-                    # Try various possible selectors for the company name
-                    company_elements = self.driver.find_elements(By.XPATH, "//a[contains(@data-anonymize, 'company-name')]") or                                       self.driver.find_elements(By.XPATH, "//a[contains(@href, '/sales/company/')]") or                                       self.driver.find_elements(By.XPATH, "//a[contains(@href, '/company/')]") or                                       self.driver.find_elements(By.XPATH, "//div[contains(@class, 'profile-info-card__company-name')]")
-                    company = company_elements[0].text.strip() if company_elements else "N/A"
-                except Exception as e:
-                    print(f"[WARNING] Company extraction error: {e}")
-                    company = "N/A"
+                    self.driver.get(profile_url)
+                    # Apply request timeout
+                    if 'REQUEST_TIMEOUT' in globals():
+                        wait_time = REQUEST_TIMEOUT
+                    else:
+                        wait_time = 5
+                    time.sleep(wait_time)
                     
-                email = extract_email(self.driver)
-                website = extract_website(self.driver)
+                    # Take screenshot if enabled
+                    if 'SCREENSHOT_PROFILES' in globals() and SCREENSHOT_PROFILES:
+                        take_debug_screenshot(self.driver, f"profile_{index+1}")
+                    
+                    # Add human-like behavior based on configuration
+                    if 'SCROLL_BEHAVIOR' in globals() and SCROLL_BEHAVIOR != "none":
+                        self.human_like_scroll()
+                    
+                    # Extract profile data
+                    try:
+                        name_elements = self.driver.find_elements(By.XPATH, "//h1[@data-x--lead--name]") or                                    self.driver.find_elements(By.XPATH, "//h1[contains(@class, '_headingText_')]") or                                    self.driver.find_elements(By.XPATH, "//h1[contains(@class, 'profile-info-card__name')]") or                                    self.driver.find_elements(By.XPATH, "//h1")
+                        name = name_elements[0].text.strip() if name_elements else "N/A"
+                    except Exception as e:
+                        print(f"[WARNING] Name extraction error: {e}")
+                        name = "N/A"
+                    
+                    try:
+                        title_elements = self.driver.find_elements(By.XPATH, "//div[contains(@class, 'profile-info-card__subtitle')]") or                                     self.driver.find_elements(By.XPATH, "//span[contains(@data-anonymize, 'job-title')]") or                                     self.driver.find_elements(By.XPATH, "//span[contains(@class, '_subtitle_')]") or                                     self.driver.find_elements(By.XPATH, "//span[contains(@class, 't-14 t-black')]")
+                        title = title_elements[0].text.strip() if title_elements else "N/A"
+                    except Exception as e:
+                        print(f"[WARNING] Title extraction error: {e}")
+                        title = "N/A"
+                    
+                    try:
+                        company_elements = self.driver.find_elements(By.XPATH, "//a[contains(@data-anonymize, 'company-name')]") or                                       self.driver.find_elements(By.XPATH, "//a[contains(@href, '/sales/company/')]") or                                       self.driver.find_elements(By.XPATH, "//a[contains(@href, '/company/')]") or                                       self.driver.find_elements(By.XPATH, "//div[contains(@class, 'profile-info-card__company-name')]")
+                        company = company_elements[0].text.strip() if company_elements else "N/A"
+                    except Exception as e:
+                        print(f"[WARNING] Company extraction error: {e}")
+                        company = "N/A"
+                    
+                    email = extract_email(self.driver)
+                    website = extract_website(self.driver)
 
-                try:
-                # Try to extract the location using the data-anonymize attribute from the provided HTML structure
-                    location_elements = self.driver.find_elements(
-                        By.XPATH,
+                    try:
+                        location_elements = self.driver.find_elements(
+                            By.XPATH,
                             "//div[contains(@class, 'DBrSNqSibpNQelWwoJTqVASHhrvlEGCmad')]//div[not(contains(., 'connections'))]"
                         )
-                    location = location_elements[0].text.strip() if location_elements else "N/A"
-                except Exception as e:
+                        location = location_elements[0].text.strip() if location_elements else "N/A"
+                    except Exception as e:
                         print(f"[WARNING] Location extraction error: {e}")
                         location = "N/A"
-                
-                # Print extracted data for debugging
-                print(f"  - Name: {name}")
-                print(f"  - Title: {title}")
-                print(f"  - Company: {company}")
-                print(f"  - Location: {location}")
-                print(f"  - Email: {email}")
-                print(f"  - Website: {website}")
-                
-                leads.append({
-                    "Name": name,
-                    "Title": title,
-                    "Company": company,
-                    "Location": location,
-                    "Profile URL": profile_url,
-                    "Email": email,
-                    "Website": website
-                })
-            except Exception as e:
-                print(f"[WARNING] Skipping profile due to error: {e}")
+                    
+                    profile_data = {
+                        "Name": name,
+                        "Title": title,
+                        "Company": company,
+                        "Location": location,
+                        "Profile URL": profile_url,
+                        "Email": email,
+                        "Website": website
+                    }
+                    
+                    # Add LinkedIn URL if extraction is enabled - this is OPTIONAL
+                    if 'extract_linkedin_url' in dir(self):
+                        linkedin_url = self.extract_linkedin_url()
+                        if linkedin_url:
+                            profile_data["LinkedIn URL"] = linkedin_url
+                    
+                    leads.append(profile_data)
+                    success = True
+                    
+                except Exception as e:
+                    print(f"[WARNING] Error scraping profile: {e}")
+                    if retry_count < max_retries:
+                        retry_count += 1
+                        delay = RETRY_DELAY if 'RETRY_DELAY' in globals() else 5
+                        print(f"[INFO] Retrying in {delay} seconds...")
+                        time.sleep(delay)
+                    else:
+                        print(f"[WARNING] Skipping profile after {retry_count} failed attempts")
+                        break
             
-            # Add randomization to delay between requests for more human-like behavior
-            delay = DELAY_BETWEEN_REQUESTS + random.uniform(0.5, 2)
+            # Add delay between profiles (with randomization if configured)
+            base_delay = DELAY_BETWEEN_REQUESTS
+            if 'ADD_RANDOM_DELAYS' in globals() and ADD_RANDOM_DELAYS:
+                delay = base_delay + random.uniform(0.5, 2)
+            else:
+                delay = base_delay
+                
+            # Adjust based on scraping speed setting
+            if 'SCRAPING_SPEED' in globals():
+                if SCRAPING_SPEED == "slow":
+                    delay *= 1.5
+                elif SCRAPING_SPEED == "fast":
+                    delay *= 0.7
+                    
             time.sleep(delay)
+            
+        # Process the extracted leads based on settings
+        if 'DEDUPLICATE_RESULTS' in globals() and DEDUPLICATE_RESULTS and leads:
+            # Remove duplicates based on profile URL
+            unique_urls = set()
+            unique_leads = []
+            for lead in leads:
+                if lead["Profile URL"] not in unique_urls:
+                    unique_urls.add(lead["Profile URL"])
+                    unique_leads.append(lead)
+            
+            print(f"[INFO] Removed {len(leads) - len(unique_leads)} duplicate profiles")
+            leads = unique_leads
             
         return leads
     
     def save_to_csv(self, leads):
-        """Save leads to CSV file."""
+        """Save leads to CSV file with configuration options applied."""
         if not leads:
             print("[WARNING] No leads to save")
             return
+        
+        # Apply output format settings
+        filename_prefix = "linkedin_leads"
+        timestamp = ""
+        if 'INCLUDE_TIMESTAMP' in globals() and INCLUDE_TIMESTAMP:
+            timestamp = f"_{time.strftime('%Y%m%d_%H%M%S')}"
+        
+        output_format = OUTPUT_FORMAT if 'OUTPUT_FORMAT' in globals() else "csv"
+        
+        output_path = f"output/{filename_prefix}{timestamp}"
+        
+        # Apply data normalization if enabled
+        for lead in leads:
+            # Company name normalization
+            if 'NORMALIZE_COMPANY_NAMES' in globals() and NORMALIZE_COMPANY_NAMES:
+                lead["Company"] = self._normalize_company_name(lead["Company"])
             
-        output_file = f"output/linkedin_leads_{time.strftime('%Y%m%d_%H%M%S')}.csv"
-        df = pd.DataFrame(leads)
-        df.to_csv(output_file, index=False)
+            # Job title normalization
+            if 'NORMALIZE_JOB_TITLES' in globals() and NORMALIZE_JOB_TITLES:
+                lead["Title"] = self._normalize_job_title(lead["Title"])
+            
+            # Remove emoji from all text fields if enabled
+            if 'REMOVE_EMOJI' in globals() and REMOVE_EMOJI:
+                for key, value in lead.items():
+                    if isinstance(value, str):
+                        lead[key] = remove_emoji(value)
+        
+        if output_format == "csv":
+            output_file = f"{output_path}.csv"
+            delimiter = CSV_DELIMITER if 'CSV_DELIMITER' in globals() else ","
+            
+            df = pd.DataFrame(leads)
+            df.to_csv(output_file, index=False, sep=delimiter)
+            
+        elif output_format == "json":
+            output_file = f"{output_path}.json"
+            with open(output_file, 'w') as f:
+                json.dump(leads, f, indent=2)
+                
+        elif output_format == "excel":
+            output_file = f"{output_path}.xlsx"
+            df = pd.DataFrame(leads)
+            df.to_excel(output_file, index=False)
+        
         print(f"[OK] Leads saved to {output_file}")
+        
+        # Archive old results if enabled
+        if 'ARCHIVE_OLD_RESULTS' in globals() and ARCHIVE_OLD_RESULTS:
+            self._archive_old_results()
+    
+    def _normalize_company_name(self, name):
+        """Normalize company name based on common patterns."""
+        if not name or name == "N/A":
+            return name
+            
+        # Remove common suffixes
+        suffixes = [" Inc", " LLC", " Ltd", " Limited", " Corp", " Corporation", " Co", " Company"]
+        for suffix in suffixes:
+            if name.endswith(suffix):
+                name = name[:-len(suffix)]
+                
+        return name.strip()
+    
+    def _normalize_job_title(self, title):
+        """Normalize job titles for consistency."""
+        if not title or title == "N/A":
+            return title
+            
+        # Standardize common titles
+        title_map = {
+            "CEO": "Chief Executive Officer",
+            "CTO": "Chief Technology Officer",
+            "CFO": "Chief Financial Officer",
+            "COO": "Chief Operating Officer",
+            "CMO": "Chief Marketing Officer"
+        }
+        
+        for abbr, full in title_map.items():
+            if title.upper() == abbr:
+                return full
+                
+        return title
+    
+    def _archive_old_results(self):
+        """Archive old result files to maintain folder cleanliness."""
+        if 'MAX_ARCHIVES_TO_KEEP' not in globals():
+            return
+            
+        try:
+            output_dir = "output"
+            prefix = "linkedin_leads"
+            
+            # Get all matching files
+            files = [f for f in os.listdir(output_dir) 
+                    if f.startswith(prefix) and os.path.isfile(os.path.join(output_dir, f))]
+            
+            # Sort by modification time (oldest first)
+            files.sort(key=lambda x: os.path.getmtime(os.path.join(output_dir, x)))
+            
+            # If we have more than the limit, move the oldest ones to archive
+            if len(files) > MAX_ARCHIVES_TO_KEEP:
+                archive_dir = os.path.join(output_dir, "archives")
+                os.makedirs(archive_dir, exist_ok=True)
+                
+                for old_file in files[:-MAX_ARCHIVES_TO_KEEP]:
+                    src_path = os.path.join(output_dir, old_file)
+                    dst_path = os.path.join(archive_dir, old_file)
+                    os.rename(src_path, dst_path)
+                    print(f"[INFO] Archived old result file: {old_file}")
+        except Exception as e:
+            print(f"[WARNING] Error during archiving old results: {e}")
     
     def cleanup(self):
         """Clean up resources."""
@@ -531,3 +716,125 @@ class LinkedInScraper:
             print("[OK] Browser closed")
         except Exception as e:
             print(f"[WARNING] Error closing browser: {e}")
+
+    def extract_linkedin_url(self):
+        """Extract LinkedIn profile URL by clicking the three dots menu button in the profile header."""
+        try:
+            print("  - Attempting to extract LinkedIn profile URL...")
+            
+            # Create a WebDriverWait instance
+            wait = WebDriverWait(self.driver, 10)
+            
+            # Take screenshot before attempting extraction
+            take_debug_screenshot(self.driver, "before_url_extraction")
+            
+            # Target the exact three-dots button in the header section from the HTML
+            three_dots_button = None
+            
+            # Very specific selectors based on the HTML structure provided
+            button_selectors = [
+                # Most specific selector using the data attribute
+                "//button[@data-x--lead-actions-bar-overflow-menu]",
+                
+                # Target by aria-label
+                "//button[@aria-label='Open actions overflow menu']",
+                
+                # Target by class - specific to the overflow menu in the profile header
+                "//button[contains(@class, '_overflow-menu--trigger_')]",
+                
+                # Target by the specific SVG path (three dots icon)
+                "//button[.//svg//path[contains(@d, 'M3 9.5A1.5 1.5 0 114.5 8')]]",
+                
+                # Target by location in the header section
+                "//section[contains(@class, '_header_')]//button[contains(@class, '_tertiary_') and contains(@class, '_circle_')]"
+            ]
+            
+            # Try each selector
+            for selector in button_selectors:
+                try:
+                    buttons = self.driver.find_elements(By.XPATH, selector)
+                    if buttons:
+                        three_dots_button = buttons[0]
+                        print(f"  - Found three dots button using selector: {selector}")
+                        break
+                except:
+                    continue
+            
+            # If we found the three dots button, click it
+            if three_dots_button:
+                # Take a screenshot of the button
+                take_debug_screenshot(self.driver, "three_dots_button")
+                
+                # Click the button to open the dropdown menu
+                three_dots_button.click()
+                print("  - Clicked three dots button")
+                
+                # Wait for the dropdown menu to appear
+                time.sleep(1.5)
+                
+                # Take a screenshot after clicking
+                take_debug_screenshot(self.driver, "after_three_dots_click")
+                
+                # Find and click the "Copy LinkedIn.com URL" option - it's the 3rd option in the dropdown
+                # Look for the specific dropdown menu container
+                dropdown_items = None
+                
+                # Try multiple approaches to find dropdown items
+                try:
+                    # First try using the specific menu ID from the HTML
+                    menu_id = three_dots_button.get_attribute("id")
+                    if menu_id:
+                        menu_container_id = f"hue-menu-{menu_id}"
+                        dropdown_items = self.driver.find_elements(By.XPATH, f"//div[@id='{menu_container_id}']//li")
+                        print(f"  - Found dropdown menu by ID: {menu_container_id}")
+                except:
+                    pass
+                    
+                # If that didn't work, try more general dropdown selectors
+                if not dropdown_items or len(dropdown_items) == 0:
+                    dropdown_items = self.driver.find_elements(By.XPATH, 
+                        "//div[contains(@class, 'artdeco-dropdown__content-wrapper')]//li")
+                    print("  - Found dropdown items using general selector")
+                
+                if dropdown_items and len(dropdown_items) >= 3:
+                    # Use the 3rd item (index 2 - it's zero-indexed)
+                    copy_url_option = dropdown_items[2]  # 3rd item
+                    
+                    # Take a screenshot before clicking the copy option
+                    take_debug_screenshot(self.driver, "copy_url_option")
+                    
+                    # Click the option
+                    copy_url_option.click()
+                    print("  - Clicked 3rd dropdown option (LinkedIn.com URL)")
+                    
+                    # Short wait for the clipboard operation
+                    time.sleep(1)
+                    
+                    # Extract URL from page source
+                    page_source = self.driver.page_source
+                    url = extract_linkedin_profile_url(page_source)
+                    
+                    if url:
+                        print(f"  - Successfully extracted LinkedIn URL: {url}")
+                        return url
+                    else:
+                        print("  - URL not found in page source after clicking 3rd option")
+                else:
+                    print(f"  - Dropdown menu not found or has insufficient items: {len(dropdown_items) if dropdown_items else 0} items")
+            
+            # Fallback to direct extraction from page source
+            print("  - Falling back to extraction from page source...")
+            page_source = self.driver.page_source
+            url = extract_linkedin_profile_url(page_source)
+            
+            if url:
+                print(f"  - Fallback method: found LinkedIn URL: {url}")
+                return url
+            
+            print("  - Failed to extract LinkedIn profile URL")
+            return None
+            
+        except Exception as e:
+            print(f"[WARNING] Error in LinkedIn URL extraction: {e}")
+            take_debug_screenshot(self.driver, "linkedin_url_extraction_error")
+            return None

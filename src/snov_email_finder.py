@@ -167,6 +167,10 @@ def process_csv(file_path):
         # Standardize company column
         if 'Company' in df.columns and 'company' not in df.columns:
             df['company'] = df['Company']
+            
+        # Standardize LinkedIn URL column if present
+        if 'LinkedIn URL' in df.columns and 'public_linkedin_url' not in df.columns:
+            df['public_linkedin_url'] = df['LinkedIn URL']
         
         # Ensure required columns exist
         required_columns = ['email', 'first_name', 'last_name', 'company']

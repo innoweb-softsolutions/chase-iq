@@ -267,6 +267,7 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         'Website': 'website',
         'Misc': 'misc',
         'Profile URL': 'linkedin_url',
+        'LinkedIn URL': 'public_linkedin_url',  # Add mapping for the LinkedIn URL column
         'Title': 'role'  # Map Title to role for consistency
     }
     
@@ -351,7 +352,7 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         # Select only the key columns for cleaner output
         final_columns = [
             'first_name', 'last_name', 'role', 'company', 'email', 
-            'phone', 'website', 'domain', 'linkedin_url', 'source'
+            'phone', 'website', 'domain', 'linkedin_url', 'public_linkedin_url', 'source'
         ]
         
         # Only keep columns that exist in our data

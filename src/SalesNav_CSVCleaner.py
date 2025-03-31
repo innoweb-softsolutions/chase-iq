@@ -150,52 +150,58 @@ def extract_role(title):
 
 
 def process_csv(input_file, output_folder):
-    """Process the CSV file and save the output."""
+    """Process a LinkedIn Sales Navigator CSV file."""
+    print(f"Processing: {input_file}")
+    
+    # Read input CSV file
     df = pd.read_csv(input_file)
-
-    # Clean names
-    df[['first_name', 'last_name']] = df['Name'].astype(str).apply(clean_name).apply(pd.Series)
-    df = df.dropna(subset=['first_name', 'last_name'])
-
-    if 'Location' not in df.columns:
-        df['Location'] = "N/A"
-
-    # Extract roles
-    df['job_title'] = df['Title'].astype(str).apply(extract_role)
-    df = df.dropna(subset=['job_title'])
-
-    # Ensure company exists (fill with "N/A" if missing)
-    df['Company'] = df['Company'].fillna("N/A")
-
-    # Ensure business emails are used, but keep personal emails if a domain exists
-    df['Emails'] = df['Email'].apply(lambda x: x if is_business_email(str(x)) else "N/A")
-
-    # Extract domain from website or company name
-    df['Domain'] = df.apply(lambda row: extract_domain(str(row['Website']), str(row['Company'])), axis=1)
-
-    # Drop rows where both email is personal AND no domain exists
-    df = df[~((df['Emails'] == "N/A") & (df['Domain'].isna()))]
-
     
-    df['Phone'] = 'N/A'
-
+    # Create standardized column structure
+    output_df = pd.DataFrame()
     
-    df['Linkedin_url'] = df['Profile URL']
-
-  
-    df = df[['Linkedin_url','first_name', 'last_name', 'Emails', 'Location', 'job_title','Company', 'Domain', 'Phone']]
-
-    print(f"Final Row Count: {len(df)}") 
-
-    # Ensure the output folder exists
-    os.makedirs(output_folder, exist_ok=True)
-
-    # Save processed file
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    output_file = output_folder / f'processed_leads_{timestamp}.csv'
-
-    df.to_csv(output_file, index=False)
-    print(f"Processed file saved: {output_file}")
+    # Process name column
+    if 'Name' in df.columns:
+        # Split name into first and last name
+        try:
+            df[['first_name', 'last_name']] = df['Name'].str.split(' ', n=1, expand=True)
+        except:
+            print("Warning: Could not split Name column properly")
+            df['first_name'] = df['Name']
+            df['last_name'] = ''
+    
+    # Map common columns to standardized names
+    column_mapping = {
+        'Title': 'role',
+        'Company': 'company',
+        'Location': 'location',
+        'Email': 'email',
+        'Website': 'website',
+        'Profile URL': 'linkedin_url',
+        'LinkedIn URL': 'public_linkedin_url'  # Add mapping for the LinkedIn URL column
+    }
+    
+    # Create new dataframe with standardized columns
+    for new_col, old_col in column_mapping.items():
+        if old_col in df.columns:
+            output_df[new_col] = df[old_col]
+        else:
+            output_df[new_col] = ''
+    
+    # Add first_name and last_name columns
+    if 'first_name' in df.columns:
+        output_df['first_name'] = df['first_name']
+    if 'last_name' in df.columns:
+        output_df['last_name'] = df['last_name']
+    
+    # Generate output filename
+    base_name = os.path.basename(input_file)
+    output_path = os.path.join(output_folder, f"processed_{base_name}")
+    
+    # Save to CSV
+    output_df.to_csv(output_path, index=False)
+    print(f"Saved processed file to: {output_path}")
+    
+    return output_path
 
 
 
