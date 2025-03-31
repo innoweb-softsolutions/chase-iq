@@ -76,32 +76,18 @@ class LinkedInScraper:
             print(f"[WARNING] Error saving scrape history: {e}")
     
     def check_previous_scrape(self, url):
-        """Check if URL was previously scraped and prompt user for action."""
+        """Check if URL was previously scraped and automatically continue."""
         self.current_url = url
-        
+    
         if url in self.scrape_history:
             last_page = self.scrape_history[url].get('last_page', 1)
             last_scraped = self.scrape_history[url].get('last_scraped', 'unknown date')
-            
-            print(f"[INFO] This URL was previously scraped (reached page {last_page}) on {last_scraped}.")
-            
-            while True:
-                choice = input("[ACTION] Do you want to start from scratch or continue where you left off? (scratch/continue): ").lower().strip()
-                
-                if choice in ['scratch', 's']:
-                    # Reset the history for this URL
-                    self.scrape_history[url] = {
-                        'last_page': 1,
-                        'last_scraped': time.strftime('%Y-%m-%d %H:%M:%S')
-                    }
-                    return 1  # Start from page 1
-                    
-                elif choice in ['continue', 'c']:
-                    self.scrape_history[url]['last_scraped'] = time.strftime('%Y-%m-%d %H:%M:%S')
-                    return last_page  # Continue from last page
-                    
-                else:
-                    print("[WARNING] Invalid choice. Please enter 'scratch' or 'continue'.")
+        
+            print(f"[INFO] This URL was previously scraped (reached page {last_page}) on {last_scraped}. Continuing automatically.")
+        
+            # Update the timestamp and continue from where we left off
+            self.scrape_history[url]['last_scraped'] = time.strftime('%Y-%m-%d %H:%M:%S')
+            return last_page  # Continue from last page
         else:
             # First time scraping this URL
             self.scrape_history[url] = {

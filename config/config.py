@@ -13,8 +13,8 @@ HEADLESS_MODE = False
 USER_AGENT_ROTATION = True
 
 # Scraping Settings
-MAX_PROFILES =700
-MAX_PAGES = 30  # Maximum number of pages to scrape
+MAX_PROFILES =10
+MAX_PAGES = 20  # Maximum number of pages to scrape
 PAGE_LOAD_TIMEOUT = 5
 DELAY_BETWEEN_REQUESTS = 2  # seconds
 
