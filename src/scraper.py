@@ -48,7 +48,7 @@ class LinkedInScraper:
             height = random.randint(768, 1080)
             options.add_argument(f"--window-size={width},{height}")
         
-        self.driver = uc.Chrome(options=options)
+        self.driver = uc.Chrome(options=options, version_main=134)
         
         # Set page load timeout from config
         if 'REQUEST_TIMEOUT' in globals():
@@ -707,34 +707,34 @@ class LinkedInScraper:
         """Extract LinkedIn profile URL by clicking the three dots menu button in the profile header."""
         try:
             print("  - Attempting to extract LinkedIn profile URL...")
-            
+        
             # Create a WebDriverWait instance
             wait = WebDriverWait(self.driver, 10)
-            
+        
             # Take screenshot before attempting extraction
             take_debug_screenshot(self.driver, "before_url_extraction")
-            
+        
             # Target the exact three-dots button in the header section from the HTML
             three_dots_button = None
-            
+        
             # Very specific selectors based on the HTML structure provided
             button_selectors = [
                 # Most specific selector using the data attribute
                 "//button[@data-x--lead-actions-bar-overflow-menu]",
-                
+            
                 # Target by aria-label
                 "//button[@aria-label='Open actions overflow menu']",
-                
+            
                 # Target by class - specific to the overflow menu in the profile header
                 "//button[contains(@class, '_overflow-menu--trigger_')]",
-                
+            
                 # Target by the specific SVG path (three dots icon)
                 "//button[.//svg//path[contains(@d, 'M3 9.5A1.5 1.5 0 114.5 8')]]",
-                
+            
                 # Target by location in the header section
                 "//section[contains(@class, '_header_')]//button[contains(@class, '_tertiary_') and contains(@class, '_circle_')]"
             ]
-            
+        
             # Try each selector
             for selector in button_selectors:
                 try:
@@ -745,81 +745,85 @@ class LinkedInScraper:
                         break
                 except:
                     continue
-            
-            # If we found the three dots button, click it
+        
+            # If we found the three dots button, try to click it
             if three_dots_button:
                 # Take a screenshot of the button
                 take_debug_screenshot(self.driver, "three_dots_button")
-                
-                # Click the button to open the dropdown menu
-                three_dots_button.click()
-                print("  - Clicked three dots button")
-                
-                # Wait for the dropdown menu to appear
-                time.sleep(1.5)
-                
-                # Take a screenshot after clicking
-                take_debug_screenshot(self.driver, "after_three_dots_click")
-                
-                # Find and click the "Copy LinkedIn.com URL" option - it's the 3rd option in the dropdown
-                # Look for the specific dropdown menu container
-                dropdown_items = None
-                
-                # Try multiple approaches to find dropdown items
-                try:
-                    # First try using the specific menu ID from the HTML
-                    menu_id = three_dots_button.get_attribute("id")
-                    if menu_id:
-                        menu_container_id = f"hue-menu-{menu_id}"
-                        dropdown_items = self.driver.find_elements(By.XPATH, f"//div[@id='{menu_container_id}']//li")
-                        print(f"  - Found dropdown menu by ID: {menu_container_id}")
-                except:
-                    pass
-                    
-                # If that didn't work, try more general dropdown selectors
-                if not dropdown_items or len(dropdown_items) == 0:
-                    dropdown_items = self.driver.find_elements(By.XPATH, 
-                        "//div[contains(@class, 'artdeco-dropdown__content-wrapper')]//li")
-                    print("  - Found dropdown items using general selector")
-                
-                if dropdown_items and len(dropdown_items) >= 3:
-                    # Use the 3rd item (index 2 - it's zero-indexed)
-                    copy_url_option = dropdown_items[2]  # 3rd item
-                    
-                    # Take a screenshot before clicking the copy option
-                    take_debug_screenshot(self.driver, "copy_url_option")
-                    
-                    # Click the option
-                    copy_url_option.click()
-                    print("  - Clicked 3rd dropdown option (LinkedIn.com URL)")
-                    
-                    # Short wait for the clipboard operation
-                    time.sleep(1)
-                    
-                    # Extract URL from page source
-                    page_source = self.driver.page_source
-                    url = extract_linkedin_profile_url(page_source)
-                    
-                    if url:
-                        print(f"  - Successfully extracted LinkedIn URL: {url}")
-                        return url
-                    else:
-                        print("  - URL not found in page source after clicking 3rd option")
-                else:
-                    print(f"  - Dropdown menu not found or has insufficient items: {len(dropdown_items) if dropdown_items else 0} items")
             
+                # Use JavaScript to click the button (more reliable than direct click)
+                try:
+                    print("  - Attempting JavaScript click on three dots button")
+                    self.driver.execute_script("arguments[0].click();", three_dots_button)
+                    print("  - Clicked three dots button using JavaScript")
+                
+                    # Wait for the dropdown menu to appear
+                    time.sleep(1.5)
+                
+                    # Take a screenshot after clicking
+                    take_debug_screenshot(self.driver, "after_three_dots_click")
+                
+                    # Find and click the "Copy LinkedIn.com URL" option - it's the 3rd option in the dropdown
+                    # Look for the specific dropdown menu container
+                    dropdown_items = None
+                
+                    # Try multiple approaches to find dropdown items
+                    try:
+                        # First try using the specific menu ID from the HTML
+                        menu_id = three_dots_button.get_attribute("id")
+                        if menu_id:
+                            menu_container_id = f"hue-menu-{menu_id}"
+                            dropdown_items = self.driver.find_elements(By.XPATH, f"//div[@id='{menu_container_id}']//li")
+                            print(f"  - Found dropdown menu by ID: {menu_container_id}")
+                    except:
+                        pass
+                    
+                    # If that didn't work, try more general dropdown selectors
+                    if not dropdown_items or len(dropdown_items) == 0:
+                        dropdown_items = self.driver.find_elements(By.XPATH, 
+                            "//div[contains(@class, 'artdeco-dropdown__content-wrapper')]//li")
+                        print("  - Found dropdown items using general selector")
+                
+                    if dropdown_items and len(dropdown_items) >= 3:
+                        # Use the 3rd item (index 2 - it's zero-indexed)
+                        copy_url_option = dropdown_items[2]  # 3rd item
+                    
+                        # Take a screenshot before clicking the copy option
+                        take_debug_screenshot(self.driver, "copy_url_option")
+                    
+                        # Click the option using JavaScript instead of direct click
+                        self.driver.execute_script("arguments[0].click();", copy_url_option)
+                        print("  - Clicked 3rd dropdown option (LinkedIn.com URL) using JavaScript")
+                    
+                        # Short wait for the clipboard operation
+                        time.sleep(1)
+                    
+                        # Extract URL from page source
+                        page_source = self.driver.page_source
+                        url = extract_linkedin_profile_url(page_source)
+                    
+                        if url:
+                            print(f"  - Successfully extracted LinkedIn URL: {url}")
+                            return url
+                        else:
+                            print("  - URL not found in page source after clicking 3rd option")
+                    else:
+                        print(f"  - Dropdown menu not found or has insufficient items: {len(dropdown_items) if dropdown_items else 0} items")
+                except Exception as e:
+                    print(f"  - Error with JavaScript click approach: {e}")
+        
             # Fallback to direct extraction from page source
             print("  - Falling back to extraction from page source...")
             page_source = self.driver.page_source
             url = extract_linkedin_profile_url(page_source)
-            
+        
             if url:
                 print(f"  - Fallback method: found LinkedIn URL: {url}")
                 return url
-            
+        
             print("  - Failed to extract LinkedIn profile URL")
             return None
-            
+        
         except Exception as e:
             print(f"[WARNING] Error in LinkedIn URL extraction: {e}")
             take_debug_screenshot(self.driver, "linkedin_url_extraction_error")

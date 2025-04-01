@@ -98,7 +98,7 @@ def run_linkedin_scraper(file_manager):
                 
                 try:
                     processed_file = file_manager.get_processed_path(source="linkedin")
-                    process_csv(csv_file, os.path.dirname(processed_file))
+                    process_csv(csv_file, str(processed_file))
                     processed_csv = processed_file
                     if processed_csv.exists():
                         logging.info(f"Successfully post-processed LinkedIn leads: {processed_csv}")

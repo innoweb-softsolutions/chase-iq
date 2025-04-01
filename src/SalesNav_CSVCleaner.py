@@ -195,7 +195,16 @@ def process_csv(input_file, output_folder):
     
     # Generate output filename
     base_name = os.path.basename(input_file)
-    output_path = os.path.join(output_folder, f"processed_{base_name}")
+    
+    # Check if output_folder is a complete path with filename
+    if output_folder.endswith('.csv'):
+        output_path = output_folder  # Use the exact path provided
+    else:
+        # Otherwise, use the old behavior of constructing the path
+        output_path = os.path.join(output_folder, f"processed_{base_name}")
+    
+    # Create parent directories if they don't exist
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     
     # Save to CSV
     output_df.to_csv(output_path, index=False)
