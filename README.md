@@ -4,7 +4,7 @@ A Python-based automation tool that scrapes LinkedIn Sales Navigator for profile
 
 ## Overview
 
-This tool allows you to automatically scrape LinkedIn Sales Navigator search results for contact information and profile data, targeting specific keywords (currently configured for "Real Estate Email").
+This tool allows you to automatically scrape LinkedIn Sales Navigator search results for contact information and profile data, targeting specific keywords. It supports multiple data sources including LinkedIn Sales Navigator, Apollo, and LeadRocks.
 
 ## Features
 
@@ -13,12 +13,20 @@ This tool allows you to automatically scrape LinkedIn Sales Navigator search res
 - Configurable user agent rotation
 - Adjustable scraping parameters
 - Headless browser mode option
+- Multiple data source support:
+  - LinkedIn Sales Navigator scraping
+  - Apollo data integration
+  - LeadRocks enrichment and export
+- Parallel scraping from multiple sources
+- Data merging and deduplication
+- Email verification via Snov.io and Hunter.io
 
 ## Prerequisites
 
 - Python 3.10+
 - Chrome/Chromium browser
 - Chrome WebDriver
+- LeadRocks Chrome extension (for LeadRocks functionality)
 
 ## Installation
 
@@ -48,7 +56,9 @@ venv\Scripts\activate     # On Windows
 pip install -r requirements.txt
 ```
 
-3. Set up your LinkedIn credentials in the configuration file.
+4. Set up your LinkedIn credentials in the configuration file.
+
+5. Install and configure the LeadRocks Chrome extension (if using LeadRocks functionality).
 
 ## Project Structure
 
@@ -61,6 +71,7 @@ pip install -r requirements.txt
 │   └── *.csv            # Scraped lead data
 ├── src/
 │   ├── scraper.py       # Core scraping logic
+│   ├── LeadRocksPipeLine.py  # LeadRocks integration
 │   └── utils/
 │       └── helpers.py   # Helper functions
 ├── logs/                # Scraping logs
@@ -92,11 +103,33 @@ DELAY_BETWEEN_REQUESTS = 3 # Delay between profile visits
 
 ## Usage
 
-Run the main script from the project root directory:
+The tool can be run in several modes:
 
+1. Full Pipeline (all sources):
 ```bash
 python main.py
 ```
+
+2. LinkedIn Sales Navigator Only:
+```bash
+python main.py --linkedin-only
+```
+
+3. Apollo Only:
+```bash
+python main.py --apollo-only
+```
+
+4. LeadRocks Only:
+```bash
+python main.py --leadrocks-only --search-query "real estate ceo US"  # For United States
+python main.py --leadrocks-only --search-query "real estate ceo UK"  # For United Kingdom
+```
+
+Additional Options:
+- `--skip-snovio`: Skip Snov.io email finding
+- `--skip-hunter`: Skip Hunter.io email verification
+- `--input-csv`: Use existing CSV file instead of scraping
 
 The script will:
 1. Attempt to login using saved cookies
@@ -109,7 +142,11 @@ The script will:
    - Company
    - Email (if available)
    - Website (if available)
-6. Save results to CSV in the `output` directory
+   - Team Size (LeadRocks only)
+6. Enrich data using LeadRocks (when enabled)
+7. Save results to CSV in the `output` directory
+8. Merge data from multiple sources (when running full pipeline)
+9. Verify and enrich emails using Snov.io and Hunter.io (unless skipped)
 
 ## Dependencies
 
@@ -125,6 +162,10 @@ The script will:
 - The script includes built-in delays and user agent rotation to avoid detection
 - Debug screenshots are automatically saved in `output/screenshots/` if errors occur
 - Logs are stored in the `logs/` directory with timestamps
+- When using LeadRocks:
+  - Ensure the Chrome extension is installed and logged in
+  - Use "US" or "UK" for location (not "United States" or "United Kingdom")
+  - Search query format: "[keywords] [title] [location]"
 
 ## Legal Disclaimer
 
