@@ -127,26 +127,31 @@ def run_apollo_scraper(file_manager):
     """Run Apollo scraper and return the path to the saved CSV file."""
     logging.info("Running Apollo Scraper...")
     try:
-        ApolloScraper()
+        from src.ApolloScraper import ApolloScraper
         
-        # Find the Apollo output file - first check for specific naming pattern
-        apollo_base_dir = os.path.join(os.path.dirname(file_manager.base_dir), "output")
-        apollo_files = [f for f in os.listdir(apollo_base_dir) if f.startswith("ApolloCleaned_Filtered")]
+        # Pass the file_manager to ApolloScraper
+        apollo_output_file = ApolloScraper(file_manager)
         
-        if apollo_files:
-            # Sort by modification time (newest first)
-            apollo_files.sort(key=lambda x: os.path.getmtime(os.path.join(apollo_base_dir, x)), reverse=True)
-            source_file = os.path.join(apollo_base_dir, apollo_files[0])
-            
-            # Copy to our organized directory
-            destination_file = file_manager.get_apollo_path(apollo_files[0])
-            shutil.copy2(source_file, destination_file)
-            
-            logging.info(f"Apollo scraping complete. Results saved to {destination_file}")
-            file_manager.save_latest_reference(destination_file, "apollo")
-            return destination_file
+        if apollo_output_file and os.path.exists(apollo_output_file):
+            logging.info(f"Apollo scraping complete. Results saved to {apollo_output_file}")
+            file_manager.save_latest_reference(apollo_output_file, "apollo")
+            return apollo_output_file
         else:
-            logging.warning("Apollo scraping complete, but couldn't locate the output file.")
+            logging.error("Apollo scraping failed to produce a valid output file.")
+            
+            # Attempt to find any Apollo output as fallback
+            apollo_dir = file_manager.get_apollo_path().parent
+            apollo_files = list(apollo_dir.glob("Apollo*.csv"))
+            
+            if apollo_files:
+                # Sort by modification time (newest first)
+                apollo_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
+                found_file = str(apollo_files[0])
+                logging.info(f"Found fallback Apollo output file: {found_file}")
+                file_manager.save_latest_reference(found_file, "apollo")
+                return found_file
+                
+            logging.error("No Apollo output files found.")
             return None
     except Exception as e:
         logging.error(f"An error occurred during Apollo scraping: {e}")
@@ -260,14 +265,22 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         'Role': 'role',
         'Emails': 'email',
         'Email': 'email',
+        'email': 'email',  # Keep existing 'email' column as is
         'Domain': 'domain',
+        'domain': 'domain',  # Keep existing 'domain' column as is
         'Company': 'company',
+        'company': 'company',  # Keep existing 'company' column as is
         'Phone': 'phone',
+        'phone': 'phone',  # Keep existing 'phone' column as is
         'Website': 'website',
+        'website': 'website',  # Keep existing 'website' column as is
         'Misc': 'misc',
+        'misc': 'misc',  # Keep existing 'misc' column as is
         'Profile URL': 'linkedin_url',
-        'LinkedIn URL': 'public_linkedin_url',  # Add mapping for the LinkedIn URL column
-        'Title': 'role'  # Map Title to role for consistency
+        'LinkedIn URL': 'public_linkedin_url',
+        'LinkedIn': 'public_linkedin_url',  # Apollo's LinkedIn column
+        'Title': 'role',  # Map Title to role for consistency
+        'Job Title': 'role'  # Apollo may use Job Title
     }
     
     # Read LinkedIn CSV if available
@@ -277,8 +290,14 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
             
             # If Name column exists but first_name/last_name don't, split it
             if 'Name' in linkedin_df.columns and 'first_name' not in linkedin_df.columns:
-                # Split Name into first and last name
-                linkedin_df[['first_name', 'last_name']] = linkedin_df['Name'].str.split(' ', n=1, expand=True)
+                try:
+                    # Split Name into first and last name
+                    linkedin_df[['first_name', 'last_name']] = linkedin_df['Name'].str.split(' ', n=1, expand=True)
+                except Exception as e:
+                    logging.warning(f"Error splitting Name column: {e}")
+                    # Create empty columns to avoid errors
+                    linkedin_df['first_name'] = linkedin_df['Name']
+                    linkedin_df['last_name'] = ''
             
             # Rename columns to standard names
             for old_col, new_col in standard_columns.items():
@@ -294,6 +313,16 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
     if apollo_csv and os.path.exists(apollo_csv):
         try:
             apollo_df = pd.read_csv(apollo_csv)
+            
+            # Check for typical Apollo column patterns
+            if 'Name' in apollo_df.columns and not any(col in apollo_df.columns for col in ['first_name', 'last_name']):
+                try:
+                    # Split Name into first and last name for Apollo data
+                    apollo_df[['first_name', 'last_name']] = apollo_df['Name'].str.split(' ', n=1, expand=True)
+                except Exception as e:
+                    logging.warning(f"Error splitting Apollo Name column: {e}")
+                    apollo_df['first_name'] = apollo_df['Name']
+                    apollo_df['last_name'] = ''
             
             # Rename columns to standard names
             for old_col, new_col in standard_columns.items():
@@ -334,8 +363,11 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         for df in [linkedin_df, apollo_df]:
             for col in df.columns:
                 # Convert to string to avoid type errors, except for boolean columns
-                if col != 'Email_Verified':
-                    df[col] = df[col].astype(str).replace({'nan': '', 'None': '', 'NaN': ''})
+                if col not in ['Email_Verified']:
+                    try:
+                        df[col] = df[col].astype(str).replace({'nan': '', 'None': '', 'NaN': '', 'none': ''})
+                    except Exception as e:
+                        logging.warning(f"Error converting column {col} to string: {e}")
         
         # Combine dataframes
         merged_df = pd.concat([linkedin_df, apollo_df], ignore_index=True)
@@ -344,6 +376,8 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         merged_df['email'] = merged_df['email'].astype(str)
         # Remove "+1" or other suffixes from emails
         merged_df['email'] = merged_df['email'].str.replace(r'\+\d+$', '', regex=True)
+        # Convert 'email' values to lowercase for consistency
+        merged_df['email'] = merged_df['email'].str.lower()
         
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_file), exist_ok=True)

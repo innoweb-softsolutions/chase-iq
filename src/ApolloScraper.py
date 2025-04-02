@@ -275,7 +275,7 @@ def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
         )
         nextPageBtn.click()
 
-def ApolloScraper():
+def ApolloScraper(file_manager=None):
     print('[INFO] Loading configuration')
     # Point towards the .env file that contains the config
     envPath = Path(__file__).resolve().parents[1] / 'config' / '.env'
@@ -291,6 +291,17 @@ def ApolloScraper():
     jobsList = os.getenv('JOB_TITLES').split(',')
 
     assert(len(accountsList) >= len(jobsList))
+
+    # Define output directory - use file_manager if provided
+    if file_manager:
+        output_dir = file_manager.get_apollo_path().parent
+    else:
+        output_dir = Path(__file__).resolve().parents[1] / 'output'
+        
+    # Ensure output directory exists
+    os.makedirs(output_dir, exist_ok=True)
+    
+    results_files = []  # Track output files
 
     try:
         for index in range(len(jobsList)):
@@ -349,13 +360,20 @@ def ApolloScraper():
                 collect_data(browser, userDataList, userDataListClean, isCollectEmails)
 
             except Exception as er:
-                print(f'Failure in task number {index}:{er}')
+                print(f'[ERROR] Failure in task number {index}: {er}')
 
             finally:
-                output_dir = Path(__file__).resolve().parents[1] / 'output'
+                # Use file_manager paths if available
+                if file_manager:
+                    raw_file = file_manager.get_apollo_path(f'ApolloRaw{index}.csv')
+                    cleaned_file = file_manager.get_apollo_path(f'ApolloCleaned{index}.csv')
+                else:
+                    raw_file = output_dir / f'ApolloRaw{index}.csv'
+                    cleaned_file = output_dir / f'ApolloCleaned{index}.csv'
+                
                 print('[INFO] Generating raw csv files')
                 # Write the output to a csv file
-                with open(output_dir / f'ApolloRaw{index}.csv', 'w', newline='', encoding='utf-8') as file:
+                with open(raw_file, 'w', newline='', encoding='utf-8') as file:
                     writer = csv.writer(file)
                     # Load the headers first before writing
                     headersStr = os.getenv('ROW_HEADERS')
@@ -366,7 +384,7 @@ def ApolloScraper():
 
                 print('[INFO] Generating cleaned csv files')
                 # Write the cleaned csv file
-                with open(output_dir / f'ApolloCleaned{index}.csv', 'w', newline='', encoding='utf-8') as file:
+                with open(cleaned_file, 'w', newline='', encoding='utf-8') as file:
                     writer = csv.writer(file)
                     # Load the headers first before writing
                     headersStr = os.getenv('ROW_HEADERS_CLEAN')
@@ -375,45 +393,61 @@ def ApolloScraper():
                     writer.writerow(headers)
                     # userDataListClean
                     writer.writerows(userDataListClean)
-
+                
+                # Track output files
+                results_files.append(str(cleaned_file))
                 browser.quit()
-
-        # print('Everything went well!')
         
     except FileNotFoundError as fnfe:
-        print(fnfe)
+        print(f'[ERROR] {fnfe}')
+        return None
 
-    except NoSuchElementException:
-        print("[Error] Failed to find an element in the browser while scraping. Aborting.")
+    except NoSuchElementException as nse:
+        print(f"[ERROR] Failed to find an element in the browser while scraping: {nse}")
+        return None
 
-    except TimeoutError:
-        print('[ERROR] Timed out while trying to find element.')
+    except TimeoutError as te:
+        print(f'[ERROR] Timed out while trying to find element: {te}')
+        return None
 
     except Exception as e:
-        print('[ERROR] An error occurred. Aborting.')
-        # print(e)
+        print(f'[ERROR] An error occurred. Aborting: {e}')
+        return None
 
     # At the end of the main try-except-finally block in ApolloScraper function
     finally:
         try:
-            merge_cleaned(Path(__file__).resolve().parents[1] / 'output', len(jobsList))
+            if file_manager:
+                merged_file = file_manager.get_apollo_path('ApolloCleaned.csv')
+            else:
+                merged_file = output_dir / 'ApolloCleaned.csv'
+                
+            merge_cleaned(merged_file.parent, len(jobsList))
 
             # Process the cleaned data using the post process function
             print('[INFO] Standardising CSV output')
-            cleanFilePath = Path(__file__).resolve().parents[1] / 'output' / f'ApolloCleaned.csv'
-            cleanOutputPath = Path(__file__).resolve().parents[1] / 'output' / f'ApolloCleaned_Filtered.csv'
-            clean_csv(cleanFilePath, cleanOutputPath)
+            if file_manager:
+                filtered_file = file_manager.get_apollo_path('ApolloCleaned_Filtered.csv')
+            else:
+                filtered_file = output_dir / 'ApolloCleaned_Filtered.csv'
+                
+            clean_csv(merged_file, filtered_file)
+            
+            # Return the path to the final filtered file
+            return str(filtered_file)
+
+        except Exception as e:
+            print(f"[WARNING] Error during final processing: {e}")
+            # Still try to return something useful
+            if results_files:
+                return results_files[0]  # Return at least one of the output files
+            return None
 
         finally:
-            print('merged all files')
-
-        try:
-            print("Completed")
+            print("[INFO] Apollo scraping process completed")
             if 'browser' in locals() and browser:
                 try:
                     browser.quit()
                     print("[INFO] Browser closed")
                 except Exception as e:
                     print(f"[INFO] Browser may have already closed: {e}")
-        except Exception as e:
-            print(f"[WARNING] Error during cleanup: {e}")
