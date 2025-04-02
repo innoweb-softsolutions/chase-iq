@@ -27,6 +27,8 @@ This tool allows you to automatically scrape LinkedIn Sales Navigator search res
 - Chrome/Chromium browser
 - Chrome WebDriver
 - LeadRocks Chrome extension (for LeadRocks functionality)
+- Snov.io API credentials
+- Hunter.io API credentials
 
 ## Installation
 
@@ -58,7 +60,10 @@ pip install -r requirements.txt
 
 4. Set up your LinkedIn credentials in the configuration file.
 
-5. Install and configure the LeadRocks Chrome extension (if using LeadRocks functionality).
+5. Install and configure the LeadRocks Chrome extension:
+   - Install from Chrome Web Store
+   - Log in to your LeadRocks account
+   - Ensure the extension has necessary permissions
 
 ## Project Structure
 
@@ -150,10 +155,13 @@ The script will:
 
 ## Dependencies
 
+Key dependencies include:
 - selenium==4.29.0
 - undetected-chromedriver==3.5.5
 - pandas==2.2.3
 - fake-useragent==2.1.0
+- requests==2.32.3
+- python-dotenv==1.0.1
 
 ## Important Notes
 
@@ -166,6 +174,13 @@ The script will:
   - Ensure the Chrome extension is installed and logged in
   - Use "US" or "UK" for location (not "United States" or "United Kingdom")
   - Search query format: "[keywords] [title] [location]"
+  - Example queries:
+    - "real estate ceo US"
+    - "software engineer UK"
+    - "startup founder US"
+- API Keys:
+  - Snov.io and Hunter.io API keys are required for email verification
+  - Store API keys securely in environment variables or config files
 
 ## Legal Disclaimer
 
