@@ -4,7 +4,7 @@ from selenium.common.exceptions import NoSuchElementException
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
-from .ApolloCSVCleaner import clean_csv
+from .ApolloCSVCleaner import clean_csv, merge_cleaned
 import undetected_chromedriver as uc
 from distutils.util import strtobool
 from dotenv import load_dotenv
@@ -15,18 +15,18 @@ import csv
 import os
 import re
 
-def login_google(browser):
+def login_google(browser, indexedEmail, indexedPassword):
     """Fills in the user details and handles 2-factor authentication"""
     loginID = WebDriverWait(browser, 10).until(
         EC.element_to_be_clickable((By.ID, "identifierId"))
     )
-    loginID.send_keys(os.getenv('GOOGLE_EMAIL'))
+    loginID.send_keys(indexedEmail)
     loginID.send_keys(Keys.ENTER)
 
     passField = WebDriverWait(browser, 10).until(
         EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='password']"))
     )
-    passField.send_keys(os.getenv('GOOGLE_PASSWORD'))
+    passField.send_keys(indexedPassword)
     passField.send_keys(Keys.ENTER)
     
     # Wait for potential 2-factor authentication
@@ -96,7 +96,7 @@ def location_filter(browser, locationTab):
         time.sleep(1)
 
 # Filter out the jobs using the list provided
-def job_filter(browser, jobTab):
+def job_filter(browser, jobTab, indexedJob):
     jobTab.click()
 
     try:
@@ -123,65 +123,106 @@ def job_filter(browser, jobTab):
         )
         first_child.click()
         time.sleep(1)
-    jobTitlesStr = os.getenv('JOB_TITLES')
+    # jobTitlesStr = os.getenv('JOB_TITLES')
     # Load the job titles first
-    for job in jobTitlesStr.split(',') if jobTitlesStr else []:
-        inputFields[0].send_keys(job)
-        first_child = WebDriverWait(browser, 10).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "Select-option"))
-        )
-        first_child.click()
-        time.sleep(1)
+    # for job in jobTitlesStr.split(',') if jobTitlesStr else []:
+    inputFields[0].send_keys(indexedJob)
+    first_child = WebDriverWait(browser, 10).until(
+        EC.element_to_be_clickable((By.CLASS_NAME, "Select-option"))
+    )
+    first_child.click()
+    time.sleep(1)
 
-    # Only include C-Suite results
+    # Open the tab
     cSuiteBtn = WebDriverWait(browser, 10).until(
         EC.element_to_be_clickable((By.XPATH, "//div[div/span[text()='Departments & Job Function']]"))
     )
     cSuiteBtn.click()
-    time.sleep(3)
+    # Expand C-suite options
     cSuiteOption = WebDriverWait(browser, 10).until(
-        EC.element_to_be_clickable((By.XPATH, "//div[text()='C-Suite']/preceding-sibling::div"))
+        EC.element_to_be_clickable((By.XPATH, "//div[text()='C-Suite']"))
     )
     cSuiteOption.click()
+    # Executive button
+    executiveBtn = WebDriverWait(browser, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//div[text()='Executive']"))
+    )
+    executiveBtn.click()
+    # Founder button
+    founderBtn = WebDriverWait(browser, 10).until(
+        EC.element_to_be_clickable((By.XPATH, "//div[text()='Founder']"))
+    )
+    founderBtn.click()
     
 def industryFilter(browser, industryTab):
     industryTab.click()
 
-    # Insert the job titles as filters
-    inputFields = WebDriverWait(browser, 10).until(
-        EC.presence_of_all_elements_located((By.CLASS_NAME, 'Select-input'))
+    # Wait for the search field to be clickable
+    searchField = WebDriverWait(browser, 10).until(
+        EC.element_to_be_clickable((By.CLASS_NAME, 'Select-input'))
     )
 
-    industryKeywords = os.getenv('INDUSTRY_KEYWORDS')
-    for industry in industryKeywords.split(',') if industryKeywords else []:
-        inputFields[0].send_keys(industry)
-        first_child = WebDriverWait(browser, 10).until(
-            EC.element_to_be_clickable((By.CLASS_NAME, "Select-option"))
+    actions = ActionChains(browser)
+    actions.move_to_element(searchField).click().perform()
+
+    time.sleep(1)
+
+    # Get industry keywords from environment variable
+    locationStr = os.getenv('INDUSTRY_KEYWORDS')
+
+    for industry in locationStr.split(',') if locationStr else []:
+        # Re-fetch the search field element before interacting with it
+        searchField = WebDriverWait(browser, 10).until(
+            EC.element_to_be_clickable((By.CLASS_NAME, 'Select-input'))
         )
+
+        actions.move_to_element(searchField).click().perform()
+        
+        # Clear the search field before entering new text
+        searchField.clear()
+        searchField.send_keys(industry)
+        time.sleep(3)
+        
+        # Ensure the element is clicked before interacting
+        actions.move_to_element(searchField).click().perform()
+
+        # Wait for the "real estate" option to be present in the DOM
+        first_child = WebDriverWait(browser, 10).until(
+            EC.presence_of_all_elements_located((By.XPATH, f"//div[contains(@class, 'Select-option') and normalize-space(text())='{industry}']"))
+        )
+
+        # Once it's present, wait for it to be clickable
+        first_child = WebDriverWait(browser, 10).until(
+            EC.element_to_be_clickable(first_child[0])
+        )
+        
         first_child.click()
         time.sleep(1)
+
+def companySizeFilters(browser, companySizeTab):
+    companySizeTab.click()
+
+    sizes = os.getenv('COMPANY_SIZE')
+    if sizes:
+        for size in sizes.split(','):
+            time.sleep(3)
+            cSuiteOption = WebDriverWait(browser, 10).until(
+                EC.element_to_be_clickable((By.XPATH, f"//span[text()='{size}']/ancestor::span/preceding-sibling::div"))
+            )
+            cSuiteOption.click()
 
 def show_all_emails(browser):
     allEmailButtons = browser.find_elements(By.XPATH, "//button[span[text()='Access email']]")
 
     for emailButton in allEmailButtons:
         emailButton.click()
-        time.sleep(12)
+        WebDriverWait(browser, 10).until(
+            EC.invisibility_of_element_located(emailButton)
+        )
 
 def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
     # Set based on the free limit of the service
     for pageNumber in range(3):
-
-        # Assuming there are 25 records in each page
-        if(shouldCollectEmail):
-            print('[INFO] Collecting Emails')
-            # Wait for the loading to stop before collecting the buttons
-            WebDriverWait(browser, 10).until(
-                EC.presence_of_element_located((By.ID, 'table-row-0'))
-            )
-            show_all_emails(browser)
-        else:
-            print('[INFO] Skipping email collection (enable from settings)')
         
         for x in range(25):
             firstRow = WebDriverWait(browser, 10).until(
@@ -201,6 +242,9 @@ def collect_data(browser, dataList, dataListClean, shouldCollectEmail):
             # There tends to be an empty element at the start of each row
             currRowData.pop(0)
             
+            if(shouldCollectEmail):
+                show_all_emails(firstRow)
+
             # Check if the email is personal and discard if so
             email_regex = r'\b[A-Za-z0-9._%+-]+@(gmail\.com|hotmail\.com|outlook\.com|yahoo\.com|aol\.com)\b'
             if(currRowData[3] != 'Access email' and re.match(currRowData[3], email_regex)):
@@ -241,85 +285,98 @@ def ApolloScraper():
     else:
         print(f"[INFO] Successfully loaded .env file from {envPath}")
 
-    browser = uc.Chrome()
+    # Need accounts equal to the number of jobs
+    accountsList = os.getenv('GOOGLE_EMAILS').split(',')
+    passwordsList = os.getenv('GOOGLE_PASSWORDS').split(',')
+    jobsList = os.getenv('JOB_TITLES').split(',')
+
+    assert(len(accountsList) >= len(jobsList))
 
     try:
-        browser.get('https://app.apollo.io/#/login')
+        for index in range(len(jobsList)):
+            userDataList = []
+            userDataListClean = []
 
-        # Find the Login with Google button
-        print('[INFO] Attempting Google Login')
-        elem = WebDriverWait(browser, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "button.zp-button.zp_GGHzP.zp_Kbe5T.zp_PLp2D.zp_rduLJ.zp_g5xYz"))
-        )
-        elem.click()
-        
-        # Login using Google
-        login_google(browser)
+            try:
+                browser = uc.Chrome()
 
-        # Navigate to the appropriate tab
-        peopleTab = WebDriverWait(browser, 30).until(
-            EC.element_to_be_clickable((By.ID, 'side-nav-people'))
-        )
-        peopleTab.click()
-        time.sleep(4)
+                browser.get('https://app.apollo.io/#/login')
 
-        print('[INFO] Setting location filters')
-        # Get the filter tabs
-        tabs = browser.find_elements(By.CSS_SELECTOR, 'div.zp-accordion-header.zp_r3aQ1')
-        
-        # Filter locations
-        location_filter(browser, tabs[5])
+                # Find the Login with Google button
+                print('[INFO] Attempting Google Login')
+                elem = WebDriverWait(browser, 10).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, "button.zp-button.zp_GGHzP.zp_Kbe5T.zp_PLp2D.zp_rduLJ.zp_g5xYz"))
+                )
+                elem.click()
+                
+                # Login using Google
+                login_google(browser, accountsList[index], passwordsList[index])
 
-        # Filter Industry
-        print('[INFO] Setting industry filters')
-        industryFilter(browser, tabs[7])
+                # Navigate to the appropriate tab
+                peopleTab = WebDriverWait(browser, 30).until(
+                    EC.element_to_be_clickable((By.ID, 'side-nav-people'))
+                )
+                peopleTab.click()
+                time.sleep(4)
 
-        print('[INFO] Setting job filters')
-        # Filter required jobs
-        job_filter(browser, tabs[3])
+                # Get the filter tabs
+                tabs = browser.find_elements(By.CSS_SELECTOR, 'div.zp-accordion-header.zp_r3aQ1')
+                
+                # Filter Industry
+                print('[INFO] Setting industry filters')
+                industryFilter(browser, browser.find_element(By.XPATH, "//span[text()='Industry & Keywords']/parent::*/parent::*"))
 
-        print('[INFO] Setting email filters')
-        # Only include verified emails
-        tabs[2].click()
-        browser.find_element(By.CLASS_NAME, 'zp_vcdPP').click()
-        
-        print('[INFO] Scrapping data')
-        userDataList = []
-        userDataListClean = []
-        
-        # Collect all the user data into a list for CSV/JSON storage
-        isCollectEmails = bool(strtobool(os.getenv('COLLECT_EMAILS')))
-        collect_data(browser, userDataList, userDataListClean, isCollectEmails)
+                print('[INFO] Setting company size filters')
+                companySizeFilters(browser, browser.find_element(By.XPATH, "//span[text()='# Employees']/parent::*/parent::*"))
+                
+                # Filter locations
+                print('[INFO] Setting location filters')
+                location_filter(browser, tabs[5])
 
-        output_dir = Path(__file__).resolve().parents[1] / 'output'
-        print('[INFO] Generating raw csv files')
-        # Write the output to a csv file
-        with open(output_dir / 'ApolloRaw.csv', 'w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Load the headers first before writing
-            headersStr = os.getenv('ROW_HEADERS')
-            headers = headersStr.split(',') if headersStr else []
-            # Write to the csv file
-            writer.writerow(headers)
-            writer.writerows(userDataList)
+                print('[INFO] Setting job filters')
+                # Filter required jobs
+                job_filter(browser, tabs[3], jobsList[index])
 
-        print('[INFO] Generating cleaned csv files')
-        # Write the cleaned csv file
-        with open(output_dir / 'ApolloCleaned.csv', 'w', newline='', encoding='utf-8') as file:
-            writer = csv.writer(file)
-            # Load the headers first before writing
-            headersStr = os.getenv('ROW_HEADERS_CLEAN')
-            headers = headersStr.split(',') if headersStr else []
-            # Write to the csv file
-            writer.writerow(headers)
-            # userDataListClean
-            writer.writerows(userDataListClean)
+                print('[INFO] Setting email filters')
+                # Only include verified emails
+                tabs[2].click()
+                browser.find_element(By.CLASS_NAME, 'zp_vcdPP').click()
+                
+                print('[INFO] Scrapping data')
+                
+                # Collect all the user data into a list for CSV/JSON storage
+                isCollectEmails = bool(strtobool(os.getenv('COLLECT_EMAILS')))
+                collect_data(browser, userDataList, userDataListClean, isCollectEmails)
 
-        # Process the cleaned data using the post process function
-        print('[INFO] Standardising CSV output')
-        cleanFilePath = Path(__file__).resolve().parents[1] / 'output' / 'ApolloCleaned.csv'
-        cleanOutputPath = Path(__file__).resolve().parents[1] / 'output' / 'ApolloCleaned_Filtered.csv'
-        clean_csv(cleanFilePath, cleanOutputPath)
+            except Exception as er:
+                print(f'Failure in task number {index}:{er}')
+
+            finally:
+                output_dir = Path(__file__).resolve().parents[1] / 'output'
+                print('[INFO] Generating raw csv files')
+                # Write the output to a csv file
+                with open(output_dir / f'ApolloRaw{index}.csv', 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    # Load the headers first before writing
+                    headersStr = os.getenv('ROW_HEADERS')
+                    headers = headersStr.split(',') if headersStr else []
+                    # Write to the csv file
+                    writer.writerow(headers)
+                    writer.writerows(userDataList)
+
+                print('[INFO] Generating cleaned csv files')
+                # Write the cleaned csv file
+                with open(output_dir / f'ApolloCleaned{index}.csv', 'w', newline='', encoding='utf-8') as file:
+                    writer = csv.writer(file)
+                    # Load the headers first before writing
+                    headersStr = os.getenv('ROW_HEADERS_CLEAN')
+                    headers = headersStr.split(',') if headersStr else []
+                    # Write to the csv file
+                    writer.writerow(headers)
+                    # userDataListClean
+                    writer.writerows(userDataListClean)
+
+                browser.quit()
 
         # print('Everything went well!')
         
@@ -334,9 +391,22 @@ def ApolloScraper():
 
     except Exception as e:
         print('[ERROR] An error occurred. Aborting.')
+        # print(e)
 
     # At the end of the main try-except-finally block in ApolloScraper function
     finally:
+        try:
+            merge_cleaned(Path(__file__).resolve().parents[1] / 'output', len(jobsList))
+
+            # Process the cleaned data using the post process function
+            print('[INFO] Standardising CSV output')
+            cleanFilePath = Path(__file__).resolve().parents[1] / 'output' / f'ApolloCleaned.csv'
+            cleanOutputPath = Path(__file__).resolve().parents[1] / 'output' / f'ApolloCleaned_Filtered.csv'
+            clean_csv(cleanFilePath, cleanOutputPath)
+
+        finally:
+            print('merged all files')
+
         try:
             print("Completed")
             if 'browser' in locals() and browser:

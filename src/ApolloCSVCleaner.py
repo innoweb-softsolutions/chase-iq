@@ -2,6 +2,25 @@ import pandas as pd
 import re
 from pathlib import Path
 
+def merge_cleaned(input_directory, length):
+    file_paths = []
+    for i in range(length):
+        file_paths.append(input_directory / f'ApolloCleaned{i}.csv')
+
+    # Read and merge CSV files
+    df_list = [pd.read_csv(file) for file in file_paths]
+    merged_df = pd.concat(df_list, ignore_index=True)
+
+    # Remove duplicate entries
+    merged_df = merged_df.drop_duplicates()
+
+    # Save merged data to a new file
+    output_file = input_directory / 'ApolloCleaned.csv'
+    merged_df.to_csv(output_file, index=False)
+
+    # print(f"Merged file saved as {output_file}")
+
+
 def clean_csv(input_file, output_file):
     # Ensure input_file and output_file are strings (in case Path objects are passed)
     input_file = str(input_file)
