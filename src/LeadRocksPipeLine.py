@@ -13,6 +13,7 @@ import pandas as pd
 from selenium.webdriver.common.action_chains import ActionChains
 import requests
 import logging
+from datetime import datetime
 
 class LeadRocksScraper:
     """LeadRocks scraper for LinkedIn lead generation and enrichment"""
@@ -20,7 +21,26 @@ class LeadRocksScraper:
     def __init__(self, file_manager=None):
         self.file_manager = file_manager
         self.driver = None
+        self.output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'output')
+        self.current_run = None
+        self.setup_output_dirs()
     
+    def setup_output_dirs(self):
+        """Setup output directory structure for current run"""
+        # Create timestamp for current run
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.current_run = f"run_{timestamp}"
+        
+        # Create directory structure
+        run_dir = os.path.join(self.output_dir, self.current_run)
+        subdirs = ['processed', 'screenshots', 'apollo', 'leadrocks', 'linkedin', 'merged']
+        
+        for subdir in subdirs:
+            os.makedirs(os.path.join(run_dir, subdir), exist_ok=True)
+        
+        logging.info(f"Created output directory structure in {run_dir}")
+        return run_dir
+
     def get_main_chrome_profile(self):
         """Get the default Chrome profile path for the current user"""
         username = os.environ.get('USERNAME')
@@ -68,53 +88,113 @@ class LeadRocksScraper:
             # First process the CSV normally
             df = pd.read_csv(file_path)
             
-            # Handle both possible column name formats
-            name_columns = {
-                'First Name': 'First Name',
-                'Last Name': 'Last Name',
-                'Job Title': 'Job Title',
-                'Team Size': 'Team Size'
+            # Define all possible column variations
+            column_mapping = {
+                'First Name': ['First Name', 'FirstName', 'First_Name'],
+                'Last Name': ['Last Name', 'LastName', 'Last_Name'],
+                'Job Title': ['Job Title', 'JobTitle', 'Title', 'Position'],
+                'Team Size': ['Team Size', 'TeamSize', 'Company Size', 'CompanySize'],
+                'Company': ['Company', 'Company Name', 'CompanyName'],
+                'Industry': ['Industry', 'Industry Type'],
+                'Phone': ['Phone #1', 'Phone#1', 'Phone', 'PhoneNumber'],
+                'Email': ['Email', 'Work Email', 'WorkEmail', 'Business Email']
             }
             
-            # Rename columns if needed
-            for new_col, old_col in name_columns.items():
-                if old_col in df.columns:
-                    df = df.rename(columns={old_col: new_col})
-                elif new_col not in df.columns:
-                    logging.warning(f"Column {new_col}/{old_col} not found in CSV")
+            # Create a new DataFrame with standardized columns
+            new_df = pd.DataFrame()
             
-            # Keep only Phone #1
-            phone_columns = [col for col in df.columns if 'Phone #1' in col or 'Phone#1' in col]
-            if not phone_columns and 'Phone #1' not in df.columns:
-                logging.warning("Phone #1 column not found in CSV")
+            # Map and copy data for each column
+            for new_col, possible_names in column_mapping.items():
+                existing_col = next((col for col in possible_names if col in df.columns), None)
+                if existing_col:
+                    new_df[new_col] = df[existing_col]
+                else:
+                    new_df[new_col] = ''
+                    logging.warning(f"Column {new_col} not found in original CSV")
+            
+            # Clean up phone numbers
+            if 'Phone' in new_df.columns:
+                new_df['Phone'] = new_df['Phone'].astype(str).replace({'nan': '', 'None': '', 'unknown': ''})
+                new_df['Phone'] = new_df['Phone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit() or c == '+'))
+            
+            # Clean up email addresses
+            if 'Email' in new_df.columns:
+                new_df['Email'] = new_df['Email'].astype(str).replace({'nan': '', 'None': '', 'unknown': ''})
+                new_df['Email'] = new_df['Email'].str.strip()
+            
+            # Convert Team Size to numeric
+            new_df['Team Size'] = pd.to_numeric(new_df['Team Size'].astype(str).replace({
+                'nan': '0', 'None': '0', 'unknown': '0', '': '0'
+            }), errors='coerce').fillna(0).astype(int)
             
             # Filter out managing directors
-            df = df[~df['Job Title'].str.lower().str.contains('managing director', na=False)]
+            if 'Job Title' in new_df.columns:
+                new_df = new_df[~new_df['Job Title'].str.lower().str.contains('managing director', na=False)]
             
-            # Keep only desired columns
-            columns_to_keep = list(name_columns.keys()) + phone_columns
+            # Save to the leadrocks directory in current run
+            date_str = datetime.now().strftime('%Y_%m_%d')
+            filename = f"leadrocks_automated_list_{date_str}_processed.csv"
             
-            # Keep only columns that exist
-            existing_columns = [col for col in columns_to_keep if col in df.columns]
-            df = df[existing_columns]
+            # Save in the leadrocks subdirectory of current run
+            output_path = os.path.join(self.output_dir, self.current_run, 'leadrocks', filename)
+            new_df.to_csv(output_path, index=False)
             
-            if self.file_manager:
-                output_path = self.file_manager.get_processed_path(source="leadrocks")
-            else:
-                output_path = file_path.replace('.csv', '_processed.csv')
-                
-            df.to_csv(output_path, index=False)
+            # Also save a copy in processed directory
+            processed_path = os.path.join(self.output_dir, self.current_run, 'processed', filename)
+            new_df.to_csv(processed_path, index=False)
+            
             logging.info(f"Processed file saved to: {output_path}")
-            logging.info(f"Final row count: {len(df)}")
-            logging.info(f"Columns kept: {existing_columns}")
+            logging.info(f"Backup saved to: {processed_path}")
+            logging.info(f"Final row count: {len(new_df)}")
+            logging.info(f"Columns in final CSV: {list(new_df.columns)}")
             
-            return output_path
+            # Call the API validation with the processed file
+            self.validate_phone_numbers(processed_path)
+            
+            return processed_path
             
         except Exception as e:
             logging.error(f"Failed to process CSV: {str(e)}")
             import traceback
             logging.error(traceback.format_exc())
             return None
+
+    def validate_phone_numbers(self, filepath):
+        """Validate phone numbers using the ClearoutPhone API"""
+        try:
+            url = "https://api.clearoutphone.io/v1/phonenumber/bulk"
+            api_token = "a04f0ffd1d4c2a7f2f13447e43e0a640:39ec3ccba26b7756b7099333fde72ff88303adbaa8b8950a482ebcb7091a238c"
+
+            with open(filepath, "rb") as file:
+                files = {"file": file}
+                payload = {"country_code": 'us'}
+                headers = {
+                    'Authorization': f"Bearer:{api_token}",
+                }
+
+                response = requests.request(
+                    "POST",
+                    url,
+                    files=files,
+                    verify=False,
+                    headers=headers,
+                    data=payload
+                )
+
+                # Save API response in the processed directory
+                response_file = filepath.replace('.csv', '_api_response.json')
+                with open(response_file, 'w') as f:
+                    f.write(response.text)
+                
+                logging.info(f"API Response saved to: {response_file}")
+
+                if response.status_code == 200:
+                    logging.info("Phone number validation completed successfully!")
+                else:
+                    logging.error(f"API request failed with status code {response.status_code}")
+
+        except Exception as e:
+            logging.error(f"An error occurred during phone validation: {str(e)}")
 
     def auto_export_leads(self, search_query=None):
         """Connect to Chrome and automatically search and export leads"""
@@ -125,7 +205,7 @@ class LeadRocksScraper:
             logging.info("Connected to Chrome browser")
             
             if not search_query:
-                search_query = input("Enter search query (e.g., 'real estate ceo United States'): ")
+                search_query = input("Enter search query (e.g., 'real estate ceo US'): ")
             search_terms = search_query.split()
             
             if len(search_terms) < 3:
@@ -133,14 +213,14 @@ class LeadRocksScraper:
                 return None
             
             location = search_terms[-1]
-            if location not in ["US", "United States", "UK", "United Kingdom"]:
+            if location not in ["US", "UK"]:
                 logging.error("Error: Location must be US or UK")
                 return None
                 
             title = search_terms[-2]
             keywords = " ".join(search_terms[:-2])
             
-            geo_urn = "103644278" if location in ["US", "United States"] else "101165590"
+            geo_urn = "103644278" if location == "US" else "101165590"
             
             url = f"https://www.linkedin.com/search/results/people/?keywords={keywords.replace(' ', '+')}" + \
                 f"&origin=FACETED_SEARCH&profileLanguage=%5Ben%5D" + \
@@ -190,12 +270,15 @@ class LeadRocksScraper:
                     self.driver.execute_script("arguments[0].click();", export_button)
                     logging.info("Clicked export button")
                     
+                    # Start checking for Continue button in parallel with other operations
+                    continue_check_start_time = time.time()
+                    
                     # Wait for the number input field and set value
                     time.sleep(3)  # Wait for dialog to appear
                     logging.info("Setting number of profiles...")
                     input_field = self.driver.find_element(By.XPATH, "//input[@type='number']")
                     self.driver.execute_script("arguments[0].value = '';", input_field)  # Clear using JavaScript
-                    input_field.send_keys("10")  # Set to 1000 as shown in image
+                    input_field.send_keys("20")  
                     
                     # Click the Export CSV button in dialog
                     logging.info("Clicking Export CSV button...")
@@ -210,7 +293,17 @@ class LeadRocksScraper:
                     
                     while time.time() - start_time < 300:  # 5 minute timeout
                         try:
-                            # Look for Save CSV button
+                            # Check for Continue button first
+                            try:
+                                continue_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Continue')]")
+                                for btn in continue_buttons:
+                                    if btn.is_displayed():
+                                        logging.info("Found Continue button, clicking...")
+                                        self.driver.execute_script("arguments[0].click();", btn)
+                            except Exception as e:
+                                pass  # Ignore continue button errors
+                            
+                            # Then check for Save CSV button
                             save_buttons = self.driver.find_elements(By.XPATH, "//button[contains(text(), 'Save CSV')]")
                             for save_btn in save_buttons:
                                 if save_btn.is_displayed():
@@ -228,7 +321,7 @@ class LeadRocksScraper:
                             pass  # Continue waiting if button not found
                             
                         logging.info("Still waiting for Save CSV button...")
-                        time.sleep(10)  # Check every 10 seconds
+                        time.sleep(2)  # Check every 2 seconds
                     
                     if not save_csv_clicked:
                         logging.error("Timed out waiting for Save CSV button")
@@ -299,26 +392,44 @@ def run_leadrocks_scraper(file_manager=None, search_query=None):
     """Run LeadRocks scraper and return the path to the saved CSV file."""
     logging.info("Starting LeadRocks Scraper...")
     
+    # Initialize Chrome with debugging
+    user_profile = LeadRocksScraper().get_main_chrome_profile()
+    
+    # Kill any existing Chrome processes
     try:
-        options = webdriver.ChromeOptions()
-        options.add_experimental_option("debuggerAddress", "127.0.0.1:9222")
-        driver = webdriver.Chrome(options=options)
-        logging.info("Connected to existing Chrome browser")
-        driver.quit()
-    except:
-        logging.info("No debugging-enabled Chrome found. Starting new instance...")
-        user_profile = LeadRocksScraper().get_main_chrome_profile()
+        import psutil
+        for proc in psutil.process_iter(['name']):
+            if proc.info['name'] == 'chrome.exe':
+                try:
+                    proc.kill()
+                except:
+                    pass
+        time.sleep(2)  # Wait for processes to close
+    except ImportError:
+        logging.warning("psutil not installed, skipping Chrome process cleanup")
+    
+    # Start Chrome with debugging enabled
+    try:
         LeadRocksScraper().start_chrome_with_debugging(user_profile)
-        time.sleep(5)
+        logging.info("Started Chrome with debugging enabled")
+        time.sleep(5)  # Wait for Chrome to start
+    except Exception as e:
+        logging.error(f"Failed to start Chrome: {str(e)}")
+        return None
     
-    scraper = LeadRocksScraper(file_manager)
-    csv_file = scraper.auto_export_leads(search_query)
-    
-    if csv_file:
-        logging.info("LeadRocks scraping complete.")
-        if file_manager:
-            file_manager.save_latest_reference(csv_file, "leadrocks")
-    else:
-        logging.error("LeadRocks scraping failed.")
-    
-    return csv_file
+    # Create scraper and run
+    try:
+        scraper = LeadRocksScraper(file_manager)
+        csv_file = scraper.auto_export_leads(search_query)
+        
+        if csv_file:
+            logging.info("LeadRocks scraping complete.")
+            if file_manager:
+                file_manager.save_latest_reference(csv_file, "leadrocks")
+        else:
+            logging.error("LeadRocks scraping failed.")
+        
+        return csv_file
+    except Exception as e:
+        logging.error(f"Error during scraping: {str(e)}")
+        return None
