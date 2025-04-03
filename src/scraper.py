@@ -17,7 +17,7 @@ import json
 import re
 
 from config.config import *
-from src.utils.helpers import take_debug_screenshot, extract_email, extract_website, extract_linkedin_profile_url, remove_emoji
+from src.utils.helpers import take_debug_screenshot, extract_email, extract_website, extract_linkedin_profile_url, remove_emoji, perform_keystroke_login
 
 class LinkedInScraper:
     """LinkedIn Sales Navigator Scraper Class"""
@@ -104,35 +104,56 @@ class LinkedInScraper:
         
         login_successful = False
         
-        # Try to use existing cookies first
-        if os.path.exists(COOKIE_FILE):
+        # Check if we should use keystroke login (skip cookie attempt)
+        if 'KEYSTROKE_LOGIN' in globals() and KEYSTROKE_LOGIN:
+            print("[INFO] Keystroke login requested. Skipping cookie attempt.")
             try:
-                print("[INFO] Attempting login with saved cookies...")
-                self._load_cookies()
-                self.driver.refresh()
-                time.sleep(10)
-                
-                # Check if we're logged in
-                if "feed" in self.driver.current_url or "/sales" in self.driver.current_url:
-                    login_successful = True
-                    print("[OK] Cookie login successful")
-                else:
-                    print("[WARNING] Saved cookies didn't work, trying credentials...")
-            except Exception as e:
-                print(f"[WARNING] Error with saved cookies: {e}")
-        
-        # Fall back to credentials if needed
-        if not login_successful:
-            try:
-                print("[INFO] Attempting login with username and password...")
+                print("[INFO] Attempting login with username and password via human-like keystrokes...")
                 self.driver.get("https://www.linkedin.com/login")
                 time.sleep(3)
-                self._perform_login()
-                login_successful = True
+                # Use the helper function instead of _perform_login
+                login_successful = perform_keystroke_login(self.driver, LINKEDIN_EMAIL, LINKEDIN_PASSWORD)
+                
+                if login_successful:
+                    # Save cookies after successful login
+                    self._save_cookies()
+                else:
+                    raise Exception("Keystroke login failed")
+                    
             except Exception as e:
-                print(f"[ERROR] All login methods failed: {e}")
-                take_debug_screenshot(self.driver, "login_failed")
-                raise Exception("Could not log in to LinkedIn")
+                print(f"[ERROR] Keystroke login failed: {e}")
+                take_debug_screenshot(self.driver, "keystroke_login_failed")
+                raise Exception("Could not log in to LinkedIn with keystrokes")
+        else:
+            # Original login flow - try cookies first
+            if os.path.exists(COOKIE_FILE):
+                try:
+                    print("[INFO] Attempting login with saved cookies...")
+                    self._load_cookies()
+                    self.driver.refresh()
+                    time.sleep(10)
+                    
+                    # Check if we're logged in
+                    if "feed" in self.driver.current_url or "/sales" in self.driver.current_url:
+                        login_successful = True
+                        print("[OK] Cookie login successful")
+                    else:
+                        print("[WARNING] Saved cookies didn't work, trying credentials...")
+                except Exception as e:
+                    print(f"[WARNING] Error with saved cookies: {e}")
+            
+            # Fall back to credentials if needed
+            if not login_successful:
+                try:
+                    print("[INFO] Attempting login with username and password...")
+                    self.driver.get("https://www.linkedin.com/login")
+                    time.sleep(3)
+                    self._perform_login()
+                    login_successful = True
+                except Exception as e:
+                    print(f"[ERROR] All login methods failed: {e}")
+                    take_debug_screenshot(self.driver, "login_failed")
+                    raise Exception("Could not log in to LinkedIn")
         
         # Navigate to Sales Navigator
         print("[OK] Logged in successfully. Redirecting to Sales Navigator...")

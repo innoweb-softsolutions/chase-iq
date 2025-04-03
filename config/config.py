@@ -13,7 +13,7 @@ HEADLESS_MODE = False
 USER_AGENT_ROTATION = True
 
 # Scraping Settings
-MAX_PROFILES =10
+MAX_PROFILES = 3
 MAX_PAGES = 20  # Maximum number of pages to scrape
 PAGE_LOAD_TIMEOUT = 5
 DELAY_BETWEEN_REQUESTS = 2  # seconds
@@ -23,6 +23,9 @@ SKIP_ALREADY_SCRAPED = False     # Skip profiles already scraped in previous run
 RETRY_FAILED_PROFILES = 1       # Number of times to retry failed profile scrapes
 SCROLL_BEHAVIOR = "smart"       # Options: "none", "simple", "smart" (human-like)
 SCREENSHOT_PROFILES = False     # Take screenshots of each profile for verification
+
+# Login behavior configuration
+KEYSTROKE_LOGIN = False  # Set to True to always use keystroke login instead of cookies
 
 # Output Options
 OUTPUT_FORMAT = "csv"           # Currently only CSV is fully supported

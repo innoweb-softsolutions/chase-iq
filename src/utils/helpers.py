@@ -4,7 +4,11 @@ Helper functions for the LinkedIn Sales Navigator Scraper
 import re
 import time
 import os
+import random
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 import unicodedata
 
 def take_debug_screenshot(driver, name="debug_screenshot"):
@@ -168,3 +172,100 @@ def remove_emoji(text):
             cleaned_text += char
     
     return cleaned_text.strip()
+
+def human_like_typing(element, text, min_delay=0.05, max_delay=0.25, mistake_probability=0.03):
+    """
+    Type text into an element with human-like delays and occasional 'mistakes'
+    
+    Args:
+        element: WebElement to type into
+        text: Text to type
+        min_delay: Minimum delay between keystrokes
+        max_delay: Maximum delay between keystrokes
+        mistake_probability: Probability of making a typing mistake
+    """
+    # Clear the field first
+    element.clear()
+    
+    # Type each character with random delay
+    for char in text:
+        # Random delay between keystrokes
+        time.sleep(random.uniform(min_delay, max_delay))
+        
+        # Small chance of making a "mistake" and correcting it
+        if random.random() < mistake_probability:
+            # Type a wrong character
+            wrong_char = chr(ord(char) + random.choice([-1, 1]))
+            element.send_keys(wrong_char)
+            
+            # Pause briefly before correcting
+            time.sleep(random.uniform(0.1, 0.3))
+            
+            # Delete the wrong character
+            element.send_keys(Keys.BACKSPACE)
+            
+            # Pause before typing the correct character
+            time.sleep(random.uniform(0.1, 0.2))
+        
+        # Type the correct character
+        element.send_keys(char)
+    
+    # Slight pause after completing typing
+    time.sleep(random.uniform(0.3, 0.7))
+
+def perform_keystroke_login(driver, username, password):
+    """
+    Perform login using human-like keystrokes instead of bulk text pasting
+    
+    Args:
+        driver: The Selenium WebDriver instance
+        username: The username or email to login with
+        password: The password to login with
+        
+    Returns:
+        bool: True if login successful, False otherwise
+    """
+    try:
+        # Wait for the login form to appear
+        wait = WebDriverWait(driver, 20)
+        wait.until(EC.presence_of_element_located((By.ID, "username")))
+        
+        # Get the form elements
+        username_field = driver.find_element(By.ID, "username")
+        password_field = driver.find_element(By.ID, "password")
+        
+        # Type username with human-like delays
+        print("[INFO] Typing username with human-like keystrokes...")
+        human_like_typing(username_field, username)
+        
+        # Pause between fields like a human would
+        time.sleep(random.uniform(0.5, 1.5))
+        
+        # Type password with human-like delays
+        print("[INFO] Typing password with human-like keystrokes...")
+        human_like_typing(password_field, password)
+        
+        # Pause before submitting form
+        time.sleep(random.uniform(0.8, 1.5))
+        
+        # Click the sign-in button instead of pressing Enter
+        sign_in_button = driver.find_element(By.XPATH, "//button[@type='submit']")
+        sign_in_button.click()
+        
+        # Wait for login to complete (longer timeout for security checks)
+        time.sleep(10)
+        
+        # Check if login was successful or if security verification is needed
+        if "checkpoint" in driver.current_url or "challenge" in driver.current_url:
+            print("[WARNING] LinkedIn security checkpoint detected. Manual intervention required.")
+            print("[ACTION] Please complete the security verification in the browser.")
+            input("[ACTION] Press Enter after completing verification...")
+        
+        return True
+        
+    except Exception as e:
+        print(f"[ERROR] Keystroke login failed: {e}")
+        take_debug_screenshot(driver, "keystroke_login_error")
+        return False
+        
+    return False

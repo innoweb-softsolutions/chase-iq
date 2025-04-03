@@ -245,7 +245,7 @@ def process_csv(input_file, output_folder):
         'location': 'Location',
         'email': 'Email',
         'website': 'Website',
-        'Profile URL': 'Profile URL',
+        'profile_url': 'Profile URL',
         'linkedin_url': 'LinkedIn URL',
         'domain': 'domain'  # Include the domain column
     }
@@ -263,6 +263,9 @@ def process_csv(input_file, output_folder):
     if 'last_name' in df.columns:
         output_df['last_name'] = df['last_name']
     
+    #generate a new column for phone numbers but keep it empty
+    output_df['phone'] = ''
+
     # Generate output filename
     base_name = os.path.basename(input_file)
     
