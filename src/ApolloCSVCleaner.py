@@ -34,6 +34,14 @@ def merge_cleaned(input_directory, length):
             standardized_df[col] = merged_df[col]
         else:
             standardized_df[col] = ""
+            
+    # IMPORTANT: Map LinkedIn URLs from misc column
+    if "misc" in merged_df.columns:
+        standardized_df["linkedin_url"] = merged_df["misc"]
+        
+    # IMPORTANT: Create website URLs from domain
+    if "domain" in merged_df.columns:
+        standardized_df["website"] = "https://" + merged_df["domain"]
 
     # Save the standardized DataFrame
     output_file = Path(input_directory) / 'ApolloCleaned.csv'
@@ -82,7 +90,8 @@ def clean_csv(input_file, output_file):
         "last_name": "last_name",
         "email": "email",
         "domain": "domain",
-        "phone": "phone"
+        "phone": "phone",
+        "linkedin_url": "linkedin_url"  # ADDED: Preserve LinkedIn URLs
     }
     
     # Copy data from filtered_df to standardized_df

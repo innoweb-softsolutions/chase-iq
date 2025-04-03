@@ -22,7 +22,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Hunter.io API details
-HUNTER_API_KEY = "e245d54a727765469f2cf49ac56ad9681ce2c1f2"
+HUNTER_API_KEY = ""
 HUNTER_VERIFY_URL = "https://api.hunter.io/v2/email-verifier"
 
 def extract_domain_from_website(website):

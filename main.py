@@ -288,17 +288,6 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         try:
             linkedin_df = pd.read_csv(linkedin_csv)
             
-            # If Name column exists but first_name/last_name don't, split it
-            if 'Name' in linkedin_df.columns and 'first_name' not in linkedin_df.columns:
-                try:
-                    # Split Name into first and last name
-                    linkedin_df[['first_name', 'last_name']] = linkedin_df['Name'].str.split(' ', n=1, expand=True)
-                except Exception as e:
-                    logging.warning(f"Error splitting Name column: {e}")
-                    # Create empty columns to avoid errors
-                    linkedin_df['first_name'] = linkedin_df['Name']
-                    linkedin_df['last_name'] = ''
-            
             # Rename columns to standard names
             for old_col, new_col in standard_columns.items():
                 if old_col in linkedin_df.columns:
@@ -313,16 +302,6 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
     if apollo_csv and os.path.exists(apollo_csv):
         try:
             apollo_df = pd.read_csv(apollo_csv)
-            
-            # Check for typical Apollo column patterns
-            if 'Name' in apollo_df.columns and not any(col in apollo_df.columns for col in ['first_name', 'last_name']):
-                try:
-                    # Split Name into first and last name for Apollo data
-                    apollo_df[['first_name', 'last_name']] = apollo_df['Name'].str.split(' ', n=1, expand=True)
-                except Exception as e:
-                    logging.warning(f"Error splitting Apollo Name column: {e}")
-                    apollo_df['first_name'] = apollo_df['Name']
-                    apollo_df['last_name'] = ''
             
             # Rename columns to standard names
             for old_col, new_col in standard_columns.items():
@@ -352,7 +331,7 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
                 apollo_df[col] = None
         
         # Ensure critical columns exist
-        required_columns = ['first_name', 'last_name', 'email', 'company', 'role']
+        required_columns = ['first_name', 'last_name', 'email', 'role']
         for col in required_columns:
             if col not in all_columns:
                 logging.warning(f"Missing required column '{col}' - adding empty column")
@@ -379,13 +358,23 @@ def merge_csv_files(linkedin_csv, apollo_csv, output_file="output/merged_leads.c
         # Convert 'email' values to lowercase for consistency
         merged_df['email'] = merged_df['email'].str.lower()
         
+        # IMPORTANT: Copy domain values to website if website is empty
+        if 'domain' in merged_df.columns and 'website' in merged_df.columns:
+            # For rows where website is empty but domain has a value
+            empty_website = (merged_df['website'].isnull()) | (merged_df['website'] == '')
+            has_domain = (~merged_df['domain'].isnull()) & (merged_df['domain'] != '')
+            mask = empty_website & has_domain
+            
+            # Copy domain value to website, properly formatted as a URL
+            merged_df.loc[mask, 'website'] = 'https://' + merged_df.loc[mask, 'domain']
+        
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
-        # Select only the key columns for cleaner output
+        # Select only the key columns for cleaner output - EXCLUDE 'company' and 'domain' columns
         final_columns = [
-            'first_name', 'last_name', 'role', 'company', 'email', 
-            'phone', 'website', 'domain', 'linkedin_url', 'public_linkedin_url', 'source'
+            'first_name', 'last_name', 'role', 'email', 
+            'phone', 'website', 'linkedin_url', 'source'
         ]
         
         # Only keep columns that exist in our data

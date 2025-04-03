@@ -5,8 +5,8 @@ import requests
 import json
 
 # Snov.io API credentials - 
-SNOV_CLIENT_ID = "c437037b467bc52eafebf948abb4cf82"
-SNOV_CLIENT_SECRET = "bc19ba364a6949e08e3192535b456fa6"
+SNOV_CLIENT_ID = ""
+SNOV_CLIENT_SECRET = ""
 
 # Snov.io API endpoint for authentication
 SNOV_AUTH_URL = "https://api.snov.io/v1/oauth/access_token"
