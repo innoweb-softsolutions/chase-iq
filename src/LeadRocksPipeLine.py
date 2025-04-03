@@ -85,73 +85,32 @@ class LeadRocksScraper:
                 
             logging.info(f"Processing CSV file: {file_path}")
             
-            # First process the CSV normally
+            # Read the CSV
             df = pd.read_csv(file_path)
             
-            # Define all possible column variations
-            column_mapping = {
-                'First Name': ['First Name', 'FirstName', 'First_Name'],
-                'Last Name': ['Last Name', 'LastName', 'Last_Name'],
-                'Job Title': ['Job Title', 'JobTitle', 'Title', 'Position'],
-                'Team Size': ['Team Size', 'TeamSize', 'Company Size', 'CompanySize'],
-                'Company': ['Company', 'Company Name', 'CompanyName'],
-                'Industry': ['Industry', 'Industry Type'],
-                'Phone': ['Phone #1', 'Phone#1', 'Phone', 'PhoneNumber'],
-                'Email': ['Email', 'Work Email', 'WorkEmail', 'Business Email']
-            }
+            logging.info("Original columns: %s", df.columns.tolist())
             
-            # Create a new DataFrame with standardized columns
-            new_df = pd.DataFrame()
+            # Rename phone #1 to Phone
+            if 'Phone #1' in df.columns:
+                df = df.rename(columns={'Phone #1': 'Phone'})
+                logging.info("Renamed 'Phone #1' to 'Phone'")
             
-            # Map and copy data for each column
-            for new_col, possible_names in column_mapping.items():
-                existing_col = next((col for col in possible_names if col in df.columns), None)
-                if existing_col:
-                    new_df[new_col] = df[existing_col]
-                else:
-                    new_df[new_col] = ''
-                    logging.warning(f"Column {new_col} not found in original CSV")
+            # Remove additional phone columns
+            phone_columns = ['Phone #2', 'Phone #3', 'Phone #4', 'Phone #5', 'Phone #6', 'Phone #7']
+            df = df.drop(columns=[col for col in phone_columns if col in df.columns])
+            logging.info("Removed additional phone columns")
             
-            # Clean up phone numbers
-            if 'Phone' in new_df.columns:
-                new_df['Phone'] = new_df['Phone'].astype(str).replace({'nan': '', 'None': '', 'unknown': ''})
-                new_df['Phone'] = new_df['Phone'].apply(lambda x: ''.join(c for c in str(x) if c.isdigit() or c == '+'))
+            # Save to runs directory
+            run_dir = os.path.join(self.output_dir, self.current_run, 'leadrocks')
+            os.makedirs(run_dir, exist_ok=True)
+            output_file = os.path.join(run_dir, os.path.basename(file_path))
             
-            # Clean up email addresses
-            if 'Email' in new_df.columns:
-                new_df['Email'] = new_df['Email'].astype(str).replace({'nan': '', 'None': '', 'unknown': ''})
-                new_df['Email'] = new_df['Email'].str.strip()
+            # Save processed file
+            df.to_csv(output_file, index=False)
+            logging.info(f"Saved processed file to: {output_file}")
+            logging.info("Final columns: %s", df.columns.tolist())
             
-            # Convert Team Size to numeric
-            new_df['Team Size'] = pd.to_numeric(new_df['Team Size'].astype(str).replace({
-                'nan': '0', 'None': '0', 'unknown': '0', '': '0'
-            }), errors='coerce').fillna(0).astype(int)
-            
-            # Filter out managing directors
-            if 'Job Title' in new_df.columns:
-                new_df = new_df[~new_df['Job Title'].str.lower().str.contains('managing director', na=False)]
-            
-            # Save to the leadrocks directory in current run
-            date_str = datetime.now().strftime('%Y_%m_%d')
-            filename = f"leadrocks_automated_list_{date_str}_processed.csv"
-            
-            # Save in the leadrocks subdirectory of current run
-            output_path = os.path.join(self.output_dir, self.current_run, 'leadrocks', filename)
-            new_df.to_csv(output_path, index=False)
-            
-            # Also save a copy in processed directory
-            processed_path = os.path.join(self.output_dir, self.current_run, 'processed', filename)
-            new_df.to_csv(processed_path, index=False)
-            
-            logging.info(f"Processed file saved to: {output_path}")
-            logging.info(f"Backup saved to: {processed_path}")
-            logging.info(f"Final row count: {len(new_df)}")
-            logging.info(f"Columns in final CSV: {list(new_df.columns)}")
-            
-            # Call the API validation with the processed file
-            self.validate_phone_numbers(processed_path)
-            
-            return processed_path
+            return output_file
             
         except Exception as e:
             logging.error(f"Failed to process CSV: {str(e)}")
@@ -159,19 +118,51 @@ class LeadRocksScraper:
             logging.error(traceback.format_exc())
             return None
 
-    def validate_phone_numbers(self, filepath):
-        """Validate phone numbers using the ClearoutPhone API"""
+    def validate_phone_numbers(self, csv_file=None):
+        """Validate phone numbers in CSV using ClearoutPhone API"""
         try:
-            url = "https://api.clearoutphone.io/v1/phonenumber/bulk"
-            api_token = "a04f0ffd1d4c2a7f2f13447e43e0a640:39ec3ccba26b7756b7099333fde72ff88303adbaa8b8950a482ebcb7091a238c"
+            import requests
+            from urllib3.exceptions import InsecureRequestWarning
+            import urllib3
+            # Disable insecure HTTPS warnings
+            urllib3.disable_warnings(InsecureRequestWarning)
 
-            with open(filepath, "rb") as file:
+            # If no file provided, try to get the most recent processed file
+            if csv_file is None:
+                run_dir = os.path.join(self.output_dir, self.current_run)
+                leadrocks_dir = os.path.join(run_dir, 'leadrocks')
+                if not os.path.exists(leadrocks_dir):
+                    logging.error("No leadrocks directory found")
+                    return False
+
+                # Get most recent CSV in leadrocks directory
+                csv_files = glob.glob(os.path.join(leadrocks_dir, "*.csv"))
+                if not csv_files:
+                    logging.error("No CSV files found in leadrocks directory")
+                    return False
+                
+                csv_file = max(csv_files, key=os.path.getctime)
+
+            logging.info(f"Validating phone numbers in: {csv_file}")
+
+            # API configuration
+            url = "https://api.clearoutphone.io/v1/phonenumber/bulk"
+            api_token = "fccf24a32d01530848037834c5c16127:3b84e30d13f1a6c00d5b427e491fc4494a459913a043eb1c43e1cf8f125175f8"
+
+            # Check if file exists
+            if not os.path.exists(csv_file):
+                logging.error(f"File not found: {csv_file}")
+                return False
+
+            # Prepare the request
+            with open(csv_file, "rb") as file:
                 files = {"file": file}
                 payload = {"country_code": 'us'}
                 headers = {
                     'Authorization': f"Bearer:{api_token}",
                 }
 
+                # Make the API request
                 response = requests.request(
                     "POST",
                     url,
@@ -181,20 +172,24 @@ class LeadRocksScraper:
                     data=payload
                 )
 
-                # Save API response in the processed directory
-                response_file = filepath.replace('.csv', '_api_response.json')
+                # Save response to a file in the same directory
+                response_file = csv_file.replace('.csv', '_validation.json')
                 with open(response_file, 'w') as f:
                     f.write(response.text)
-                
-                logging.info(f"API Response saved to: {response_file}")
+                logging.info(f"Validation response saved to: {response_file}")
 
                 if response.status_code == 200:
-                    logging.info("Phone number validation completed successfully!")
+                    logging.info("✅ Phone number validation completed successfully!")
+                    return True
                 else:
-                    logging.error(f"API request failed with status code {response.status_code}")
+                    logging.error(f"❌ API request failed with status code {response.status_code}")
+                    return False
 
         except Exception as e:
-            logging.error(f"An error occurred during phone validation: {str(e)}")
+            logging.error(f"❌ Error during phone validation: {str(e)}")
+            import traceback
+            logging.error(traceback.format_exc())
+            return False
 
     def auto_export_leads(self, search_query=None):
         """Connect to Chrome and automatically search and export leads"""
@@ -388,7 +383,7 @@ class LeadRocksScraper:
             if self.driver:
                 self.driver.quit()
 
-def run_leadrocks_scraper(file_manager=None, search_query=None):
+def run_leadrocks_scraper(file_manager=None, search_query=None, validate_phones=False):
     """Run LeadRocks scraper and return the path to the saved CSV file."""
     logging.info("Starting LeadRocks Scraper...")
     
@@ -426,6 +421,11 @@ def run_leadrocks_scraper(file_manager=None, search_query=None):
             logging.info("LeadRocks scraping complete.")
             if file_manager:
                 file_manager.save_latest_reference(csv_file, "leadrocks")
+                
+            # Optionally validate phone numbers
+            if validate_phones:
+                logging.info("Starting phone number validation...")
+                scraper.validate_phone_numbers(csv_file)
         else:
             logging.error("LeadRocks scraping failed.")
         

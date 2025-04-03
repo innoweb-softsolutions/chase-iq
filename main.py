@@ -465,6 +465,7 @@ def main():
     parser.add_argument("--skip-hunter", action="store_true", help="Skip Hunter.io email verification")
     parser.add_argument("--input-csv", help="Use existing CSV file instead of scraping")
     parser.add_argument("--search-query", help="Search query for LeadRocks (e.g., 'real estate ceo United States')")
+    parser.add_argument("--validate-phones", action="store_true", help="Validate phone numbers using ClearoutPhone API")
     args = parser.parse_args()
     
     try:
@@ -508,7 +509,7 @@ def main():
                 
         elif args.leadrocks_only:
             # Run only LeadRocks scraper
-            csv_file = run_leadrocks_scraper(file_manager, args.search_query)
+            csv_file = run_leadrocks_scraper(file_manager, args.search_query, validate_phones=args.validate_phones)
             
             if csv_file and not args.skip_snovio:
                 csv_file = run_snovio_email_finder(csv_file, file_manager)
