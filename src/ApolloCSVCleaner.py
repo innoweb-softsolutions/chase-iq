@@ -18,11 +18,26 @@ def merge_cleaned(input_directory, length):
 
     # Remove duplicate entries
     merged_df = merged_df.drop_duplicates()
+    
+    # Create a new DataFrame with the LinkedIn column structure
+    linkedin_columns = [
+        "role", "company", "location", "email", "website", 
+        "profile_url", "linkedin_url", "domain", 
+        "first_name", "last_name", "phone"
+    ]
+    
+    standardized_df = pd.DataFrame(columns=linkedin_columns)
+    
+    # Map existing columns
+    for col in linkedin_columns:
+        if col in merged_df.columns:
+            standardized_df[col] = merged_df[col]
+        else:
+            standardized_df[col] = ""
 
-    # Save merged data to a new file
+    # Save the standardized DataFrame
     output_file = Path(input_directory) / 'ApolloCleaned.csv'
-    merged_df.to_csv(output_file, index=False)
-
+    standardized_df.to_csv(output_file, index=False)
 
 def clean_csv(input_file, output_file):
     # Ensure input_file and output_file are strings (in case Path objects are passed)
@@ -52,8 +67,44 @@ def clean_csv(input_file, output_file):
         cols.insert(phone_index + 1, cols.pop(cols.index("domain")))
         filtered_df = filtered_df[cols]
     
-    # Save the cleaned DataFrame to a new CSV file
-    filtered_df.to_csv(output_file, index=False)
+    # Create a new DataFrame with the LinkedIn column structure
+    linkedin_columns = [
+        "role", "company", "location", "email", "website", 
+        "profile_url", "linkedin_url", "domain", 
+        "first_name", "last_name", "phone"
+    ]
+    
+    standardized_df = pd.DataFrame(columns=linkedin_columns)
+    
+    # Map existing columns to the standardized structure
+    column_mapping = {
+        "first_name": "first_name",
+        "last_name": "last_name",
+        "email": "email",
+        "domain": "domain",
+        "phone": "phone"
+    }
+    
+    # Copy data from filtered_df to standardized_df
+    for apollo_col, linkedin_col in column_mapping.items():
+        if apollo_col in filtered_df.columns:
+            standardized_df[linkedin_col] = filtered_df[apollo_col]
+    
+    # Set "role" from filtered_df if it exists
+    if "role" in filtered_df.columns:
+        standardized_df["role"] = filtered_df["role"]
+    
+    # Map any additional columns that might exist
+    if "misc" in filtered_df.columns:
+        standardized_df["company"] = filtered_df["misc"]  # Map misc to company if applicable
+    
+    # Set default values for missing columns
+    for col in linkedin_columns:
+        if col not in standardized_df.columns or standardized_df[col].isnull().all():
+            standardized_df[col] = ""
+    
+    # Save the standardized DataFrame to output file
+    standardized_df.to_csv(output_file, index=False)
     
     print(f"[INFO] Cleaning complete. {len(df) - len(filtered_df)} rows removed.")
     # print(f"Cleaned file saved as: {output_file}")
