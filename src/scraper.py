@@ -48,7 +48,7 @@ class LinkedInScraper:
             height = random.randint(768, 1080)
             options.add_argument(f"--window-size={width},{height}")
         
-        self.driver = uc.Chrome(options=options, version_main=134)
+        self.driver = uc.Chrome(options=options)
         
         # Set page load timeout from config
         if 'REQUEST_TIMEOUT' in globals():
