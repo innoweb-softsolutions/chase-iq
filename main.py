@@ -99,8 +99,9 @@ def run_linkedin_scraper(file_manager):
                 
                 try:
                     processed_file = file_manager.get_processed_path(source="linkedin")
-                    process_csv(csv_file, str(processed_file))
-                    processed_csv = processed_file
+                    process_csv(csv_file, output_folder)
+                    # Use most recent processed file
+                    processed_csv = max(output_folder.glob("*.csv"), key=lambda x: x.stat().st_mtime)
                     if processed_csv.exists():
                         logging.info(f"Successfully post-processed LinkedIn leads: {processed_csv}")
                         # Use the processed file for future steps
@@ -253,72 +254,7 @@ def run_hunter_verification(csv_file, file_manager):
         logging.error(f"Error during Hunter.io verification: {e}")
         return False
 
-def run_full_pipeline():
-    """Run the full pipeline with LinkedIn and Apollo in parallel."""
-    logging.info("Running full pipeline...")
-    
-    # Initialize file manager
-    file_manager = FileManager()
-    
-    # Create threads for LinkedIn and Apollo scrapers
-    linkedin_thread = threading.Thread(
-        target=lambda: globals().update(linkedin_csv=run_linkedin_scraper(file_manager))
-    )
-    apollo_thread = threading.Thread(
-        target=lambda: globals().update(apollo_csv=run_apollo_scraper(file_manager))
-    )
-    leadrocks_thread = threading.Thread(
-        target=lambda: globals().update(leadrocks_csv=run_leadrocks_scraper(file_manager))
-    )
-    
-    # Initialize result variables
-    globals()['linkedin_csv'] = None
-    globals()['apollo_csv'] = None
-    globals()['leadrocks_csv'] = None
-    
-    # Start scrapers in parallel
-    linkedin_thread.start()
-    time.sleep(10)  # Small delay to let LinkedIn initialize first
-    apollo_thread.start()
-    time.sleep(5)  # Small delay before starting LeadRocks
-    leadrocks_thread.start()
-    
-    # Wait for all to complete
-    linkedin_thread.join()
-    apollo_thread.join()
-    leadrocks_thread.join()
-    
-    # Get results
-    linkedin_csv = globals().get('linkedin_csv')
-    apollo_csv = globals().get('apollo_csv')
-    leadrocks_csv = globals().get('leadrocks_csv')
-    
-    logging.info(f"LinkedIn scraping completed: {linkedin_csv}")
-    logging.info(f"Apollo scraping completed: {apollo_csv}")
-    logging.info(f"LeadRocks scraping completed: {leadrocks_csv}")
-    
-    # Merge results if at least one was successful
-    merged_csv = None
-    if linkedin_csv or apollo_csv or leadrocks_csv:
-        merged_path = file_manager.get_merged_path()
-        merged_csv = merge_csv_files(linkedin_csv, apollo_csv, leadrocks_csv, output_file=str(merged_path))
-        if merged_csv:
-            file_manager.save_latest_reference(merged_csv, "merged")
-    else:
-        logging.error("All scrapers failed. No data to process.")
-        return
-    
-    # Process with Snov.io
-    if merged_csv:
-        processed_csv = run_snovio_email_finder(merged_csv, file_manager)
-        
-        # Verify with Hunter.io
-        if processed_csv:
-            run_hunter_verification(processed_csv, file_manager)
-    else:
-        logging.error("Merge failed. Cannot continue pipeline.")
-
-def merge_csv_files(linkedin_csv, apollo_csv, leadrocks_csv=None, output_file="output/merged_leads.csv"):
+def merge_csv_files(linkedin_csv=None, apollo_csv=None, leadrocks_csv=None, output_file="output/merged_leads.csv"):
     """Merge LinkedIn, Apollo and LeadRocks CSV files with proper column standardization."""
     # Initialize with empty DataFrames
     linkedin_df = pd.DataFrame()
@@ -347,13 +283,21 @@ def merge_csv_files(linkedin_csv, apollo_csv, leadrocks_csv=None, output_file="o
         'LinkedIn URL': 'public_linkedin_url',
         'LinkedIn': 'public_linkedin_url',  # Apollo's LinkedIn column
         'Title': 'role',  # Map Title to role for consistency
-        'Job Title': 'role'  # Apollo may use Job Title
+        'Job Title': 'role',  # Apollo may use Job Title
+        'First Name': 'first_name',  # LeadRocks specific
+        'Last Name': 'last_name',  # LeadRocks specific
+        'Team Size': 'team_size'  # LeadRocks specific
     }
     
     # Read LinkedIn CSV if available
     if linkedin_csv and os.path.exists(linkedin_csv):
         try:
             linkedin_df = pd.read_csv(linkedin_csv)
+            
+            # If Name column exists but first_name/last_name don't, split it
+            if 'Name' in linkedin_df.columns and 'first_name' not in linkedin_df.columns:
+                # Split Name into first and last name
+                linkedin_df[['first_name', 'last_name']] = linkedin_df['Name'].str.split(' ', n=1, expand=True)
             
             # Rename columns to standard names
             for old_col, new_col in standard_columns.items():
@@ -456,11 +400,15 @@ def merge_csv_files(linkedin_csv, apollo_csv, leadrocks_csv=None, output_file="o
         # Ensure output directory exists
         os.makedirs(os.path.dirname(output_file), exist_ok=True)
         
-        # Select only the key columns for cleaner output - EXCLUDE 'company' and 'domain' columns
+        # Select only the key columns for cleaner output
         final_columns = [
-            'first_name', 'last_name', 'role', 'email', 
-            'phone', 'website', 'linkedin_url', 'source'
+            'first_name', 'last_name', 'role', 'company', 'email', 
+            'phone', 'website', 'domain', 'linkedin_url', 'public_linkedin_url', 'source'
         ]
+        
+        # Add team_size if available from LeadRocks
+        if 'team_size' in merged_df.columns:
+            final_columns.append('team_size')
         
         # Only keep columns that exist in our data
         output_columns = [col for col in final_columns if col in merged_df.columns]
@@ -473,6 +421,71 @@ def merge_csv_files(linkedin_csv, apollo_csv, leadrocks_csv=None, output_file="o
         logging.error(f"Error merging CSV files: {e}")
         return None
 
+def run_full_pipeline():
+    """Run the full pipeline with LinkedIn, Apollo, and LeadRocks in parallel."""
+    logging.info("Running full pipeline...")
+    
+    # Initialize file manager
+    file_manager = FileManager()
+    
+    # Create threads for LinkedIn, Apollo, and LeadRocks scrapers
+    linkedin_thread = threading.Thread(
+        target=lambda: globals().update(linkedin_csv=run_linkedin_scraper(file_manager))
+    )
+    apollo_thread = threading.Thread(
+        target=lambda: globals().update(apollo_csv=run_apollo_scraper(file_manager))
+    )
+    leadrocks_thread = threading.Thread(
+        target=lambda: globals().update(leadrocks_csv=run_leadrocks_scraper(file_manager))
+    )
+    
+    # Initialize result variables
+    globals()['linkedin_csv'] = None
+    globals()['apollo_csv'] = None
+    globals()['leadrocks_csv'] = None
+    
+    # Start scrapers in parallel
+    linkedin_thread.start()
+    time.sleep(10)  # Small delay to let LinkedIn initialize first
+    apollo_thread.start()
+    time.sleep(5)  # Small delay before starting LeadRocks
+    leadrocks_thread.start()
+    
+    # Wait for all to complete
+    linkedin_thread.join()
+    apollo_thread.join()
+    leadrocks_thread.join()
+    
+    # Get results
+    linkedin_csv = globals().get('linkedin_csv')
+    apollo_csv = globals().get('apollo_csv')
+    leadrocks_csv = globals().get('leadrocks_csv')
+    
+    logging.info(f"LinkedIn scraping completed: {linkedin_csv}")
+    logging.info(f"Apollo scraping completed: {apollo_csv}")
+    logging.info(f"LeadRocks scraping completed: {leadrocks_csv}")
+    
+    # Merge results if at least one was successful
+    merged_csv = None
+    if linkedin_csv or apollo_csv or leadrocks_csv:
+        merged_path = file_manager.get_merged_path()
+        merged_csv = merge_csv_files(linkedin_csv, apollo_csv, leadrocks_csv, output_file=str(merged_path))
+        if merged_csv:
+            file_manager.save_latest_reference(merged_csv, "merged")
+    else:
+        logging.error("All scrapers failed. No data to process.")
+        return
+    
+    # Process with Snov.io
+    if merged_csv:
+        processed_csv = run_snovio_email_finder(merged_csv, file_manager)
+        
+        # Verify with Hunter.io
+        if processed_csv:
+            run_hunter_verification(processed_csv, file_manager)
+    else:
+        logging.error("Merge failed. Cannot continue pipeline.")
+
 def main():
     """Main entry point with command-line argument support."""
     parser = argparse.ArgumentParser(description="LinkedIn and Apollo Lead Generation Pipeline")
@@ -482,7 +495,7 @@ def main():
     parser.add_argument("--skip-snovio", action="store_true", help="Skip Snov.io email finding")
     parser.add_argument("--skip-hunter", action="store_true", help="Skip Hunter.io email verification")
     parser.add_argument("--input-csv", help="Use existing CSV file instead of scraping")
-    parser.add_argument("--search-query", help="Search query for LeadRocks (e.g., 'real estate ceo United States')")
+    parser.add_argument("--search-query", help="Search query for LeadRocks (e.g., 'real estate ceo US')")
     parser.add_argument("--validate-phones", action="store_true", help="Validate phone numbers using ClearoutPhone API")
     args = parser.parse_args()
     
