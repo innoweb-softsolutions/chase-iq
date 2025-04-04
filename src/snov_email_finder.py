@@ -1,18 +1,27 @@
 """
-Basic Email Finder for LinkedIn Leads
+Snov.io Email Finder for Lead Generation
 
-This script reads LinkedIn leads CSV files, identifies entries with missing emails,
-attempts to find them using Snov.io's API, and updates the CSV.
-If Snov.io can't find an email or if there are credit issues, it keeps the original value.
+This script processes CSV files containing lead data, finds missing emails
+using Snov.io's API, and updates the rows where emails are missing.
+
+It can be used in two ways:
+1. As part of the main pipeline (called by main.py)
+2. As a standalone tool with command-line arguments
+
+Usage as standalone:
+    python snov_email_finder.py --input path/to/input.csv [--output path/to/output.csv]
 """
 
 import os
 import pandas as pd
 import requests
 import time
-from urllib.parse import urlparse
-import argparse
 import logging
+import argparse
+import dotenv
+from urllib.parse import urlparse
+from pathlib import Path
+import datetime
 
 # Setup logging
 os.makedirs("logs", exist_ok=True)
@@ -20,15 +29,41 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler(f"logs/email_finder_{time.strftime('%Y%m%d_%H%M%S')}.log"),
+        logging.FileHandler(f"logs/snov_email_finder_{time.strftime('%Y%m%d_%H%M%S')}.log"),
         logging.StreamHandler()
     ]
 )
 logger = logging.getLogger(__name__)
 
-# Snov.io API credentials - replace with your actual credentials
-SNOV_CLIENT_ID = ""
-SNOV_CLIENT_SECRET = ""
+# Load credentials from .env file
+def load_credentials():
+    """Load Snov.io API credentials from .env file"""
+    # Get the script directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # The .env file is always in the config directory
+    project_root = os.path.dirname(script_dir)
+    if os.path.basename(script_dir) == "src":
+        # If we're in the src directory
+        env_file = os.path.join(project_root, "config", ".env")
+    else:
+        # If we're not in the src directory, try going up one level
+        env_file = os.path.join(os.path.dirname(project_root), "config", ".env")
+    
+    if os.path.exists(env_file):
+        logger.info(f"Loading credentials from: {env_file}")
+        dotenv.load_dotenv(env_file)
+    else:
+        logger.error(f"Could not find .env file at {env_file}")
+    
+    # Get credentials from environment variables
+    client_id = os.environ.get("SNOV_CLIENT_ID", "")
+    client_secret = os.environ.get("SNOV_CLIENT_SECRET", "")
+    
+    return client_id, client_secret
+
+# Load credentials
+SNOV_CLIENT_ID, SNOV_CLIENT_SECRET = load_credentials()
 
 # Snov.io API endpoints
 SNOV_AUTH_URL = "https://api.snov.io/v1/oauth/access_token"
@@ -37,6 +72,10 @@ SNOV_EMAIL_FINDER_URL = "https://api.snov.io/v1/get-emails-from-names"
 def get_access_token():
     """Get Snov.io API access token"""
     logger.info("Getting Snov.io API access token...")
+    
+    if not SNOV_CLIENT_ID or not SNOV_CLIENT_SECRET:
+        logger.error("Snov.io credentials not found. Please set them in your .env file.")
+        return None
     
     payload = {
         'grant_type': 'client_credentials',
@@ -53,62 +92,40 @@ def get_access_token():
                 logger.info("Successfully obtained Snov.io access token")
                 return token_data['access_token']
         
-        logger.warning("Failed to get valid access token")
+        logger.warning(f"Failed to get valid access token. Response: {response.text}")
         return None
     except Exception as e:
         logger.error(f"Error getting access token: {e}")
         return None
 
-def extract_domain(website, company):
-    """Extract domain from website URL or company name"""
-    # Try website first
-    if website and website != "N/A":
-        try:
-            # Handle URLs without protocol
-            if not website.startswith(('http://', 'https://')):
-                website = 'https://' + website
-            
-            parsed_url = urlparse(website)
-            domain = parsed_url.netloc or parsed_url.path
-            
-            # Remove www. prefix if present
-            if domain.startswith('www.'):
-                domain = domain[4:]
-                
-            if domain:
-                return domain
-        except Exception:
-            pass
+def extract_domain_from_website(website):
+    """Extract domain from website URL"""
+    if not website or website == "N/A" or pd.isna(website):
+        return None
     
-    # Fall back to company name
-    if company and company != "N/A":
-        company = company.lower()
-        for suffix in [' inc', ' llc', ' ltd', ' corp']:
-            if company.endswith(suffix):
-                company = company[:-len(suffix)]
+    try:
+        # Handle URLs without protocol
+        if not website.startswith(('http://', 'https://')):
+            website = 'https://' + website
         
-        # Remove non-alphanumeric characters
-        company = ''.join(c for c in company if c.isalnum() or c == ' ')
-        company = company.strip().replace(' ', '')
+        parsed_url = urlparse(website)
+        domain = parsed_url.netloc or parsed_url.path
         
-        if company:
-            return f"{company}.com"
+        # Remove www. prefix if present
+        if domain.startswith('www.'):
+            domain = domain[4:]
+            
+        if domain:
+            return domain
+    except Exception as e:
+        logger.warning(f"Could not extract domain from {website}: {e}")
     
     return None
 
-def find_email(name, domain, access_token):
+def find_email(first_name, last_name, domain, access_token):
     """Find email using Snov.io API, handling errors gracefully"""
-    if not name or name == "N/A" or not domain or not access_token:
+    if not first_name or not last_name or not domain or not access_token:
         return None
-    
-    # Split name into first and last parts
-    name_parts = name.split()
-    if len(name_parts) < 2:
-        first_name = name_parts[0]
-        last_name = ""
-    else:
-        first_name = name_parts[0]
-        last_name = name_parts[-1]
     
     logger.info(f"Searching for email: {first_name} {last_name} at {domain}")
     
@@ -135,88 +152,105 @@ def find_email(name, domain, access_token):
                     return best_email
         
         # If no emails or any error, log and return None
-        logger.info(f"No email found or API error for {name} at {domain}")
+        logger.info(f"No email found or API error for {first_name} {last_name} at {domain}")
         return None
         
     except Exception as e:
         logger.warning(f"Error calling Snov.io API: {e}")
         return None
 
-def process_csv(file_path):
-    """Process a single CSV file to find missing emails"""
-    logger.info(f"Processing file: {file_path}")
+def get_default_output_path(input_file=None):
+    """Get the default output path in the main output folder"""
+    # Get the timestamp for the filename
+    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    # Create the default output filename
+    if input_file:
+        input_path = Path(input_file)
+        filename = f"{input_path.stem}_snov_{timestamp}.csv"
+    else:
+        filename = f"snov_processed_{timestamp}.csv"
+    
+    # Try to find the main output directory
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # Check possible locations for the output directory
+    output_paths = [
+        os.path.join(os.path.dirname(script_dir), "output"),  # If in src folder
+        os.path.join(script_dir, "output")                   # If in root folder
+    ]
+    
+    for path in output_paths:
+        if os.path.exists(path):
+            return os.path.join(path, filename)
+    
+    # If output directory not found, create one in the script directory
+    fallback_path = os.path.join(script_dir, "output")
+    os.makedirs(fallback_path, exist_ok=True)
+    return os.path.join(fallback_path, filename)
+
+def process_csv_file(input_file, output_file=None):
+    """Process a CSV file to find missing emails and save to output file
+    
+    Args:
+        input_file (str): Path to input CSV file
+        output_file (str, optional): Path to output CSV file. If None, will use the main output folder.
+        
+    Returns:
+        str: Path to the processed output file, or None if processing failed
+    """
+    logger.info(f"Processing CSV file: {input_file}")
+    
+    # Generate output filename if not provided
+    if output_file is None:
+        output_file = get_default_output_path(input_file)
+    
+    logger.info(f"Output will be saved to: {output_file}")
     
     try:
-        # Read CSV file
-        df = pd.read_csv(file_path)
+        # Read the CSV file
+        df = pd.read_csv(input_file)
         
-        # Standardize email column name
-        if 'Email' in df.columns and 'email' not in df.columns:
-            df['email'] = df['Email']
-        elif 'Emails' in df.columns and 'email' not in df.columns:
-            df['email'] = df['Emails']
-            
-        # Standardize name columns
-        if 'Name' in df.columns and ('first_name' not in df.columns or 'last_name' not in df.columns):
-            # Split Name into first_name and last_name
-            try:
-                df[['first_name', 'last_name']] = df['Name'].str.split(' ', n=1, expand=True)
-            except:
-                logger.warning("Could not split Name column into first_name and last_name")
-                
-        # Standardize company column
-        if 'Company' in df.columns and 'company' not in df.columns:
-            df['company'] = df['Company']
-            
-        # Standardize LinkedIn URL column if present
-        if 'LinkedIn URL' in df.columns and 'public_linkedin_url' not in df.columns:
-            df['public_linkedin_url'] = df['LinkedIn URL']
-        
-        # Ensure required columns exist
-        required_columns = ['email', 'first_name', 'last_name', 'company']
+        # Check if required columns exist
+        required_columns = ['first_name', 'last_name', 'email', 'website']
         missing_columns = [col for col in required_columns if col not in df.columns]
         
         if missing_columns:
             logger.error(f"CSV is missing required columns: {', '.join(missing_columns)}")
-            return False
-        
-        # Clean up values
-        for col in df.columns:
-            if df[col].dtype != bool:  # Skip boolean columns
-                df[col] = df[col].astype(str).replace({'nan': '', 'None': '', 'NaN': '', 'null': ''})
+            return None
         
         # Get Snov.io API access token
         access_token = get_access_token()
         if not access_token:
             logger.error("Failed to get Snov.io access token. Exiting.")
-            return False
+            return None
         
         # Initialize counters
         total_leads = len(df)
         missing_email_count = 0
         found_email_count = 0
         
-        logger.info(f"Found {total_leads} leads in the CSV file")
+        logger.info(f"Found {total_leads} leads in the CSV data")
         
         # Process each row
         for idx, row in df.iterrows():
-            email = str(row['email']).strip()
+            # Convert to string and handle NaN values
+            email = str(row['email']).strip() if not pd.isna(row['email']) else ""
             
             # Check if email is missing or N/A
-            if email.lower() in ['n/a', 'na', '', 'nan', 'none']:
+            if email.lower() in ['n/a', 'na', '', 'nan', 'none'] or pd.isna(row['email']):
                 missing_email_count += 1
                 
-                first_name = str(row['first_name']).strip()
-                last_name = str(row['last_name']).strip()
-                company = str(row['company']).strip()
-                website = str(row['website']).strip() if 'website' in df.columns else ''
+                first_name = str(row['first_name']).strip() if not pd.isna(row['first_name']) else ""
+                last_name = str(row['last_name']).strip() if not pd.isna(row['last_name']) else ""
+                website = str(row['website']).strip() if not pd.isna(row['website']) else ""
                 
-                # Extract domain from website or company name
-                domain = extract_domain(website, company)
+                # Extract domain from website
+                domain = extract_domain_from_website(website)
                 
                 if domain and first_name and last_name:
                     # Try to find email
-                    found_email = find_email(f"{first_name} {last_name}", domain, access_token)
+                    found_email = find_email(first_name, last_name, domain, access_token)
                     
                     if found_email:
                         # Update dataframe with found email
@@ -226,82 +260,50 @@ def process_csv(file_path):
                     else:
                         logger.info(f"Could not find email for {first_name} {last_name} - keeping original value: {email}")
                 else:
-                    logger.warning(f"Could not determine domain for {first_name} {last_name} at {company}")
+                    logger.warning(f"Could not determine domain for {first_name} {last_name}")
                 
             # Add small delay between API calls
             time.sleep(1)
         
-        # Save updates back to the original CSV file
-        df.to_csv(file_path, index=False)
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(os.path.abspath(output_file)), exist_ok=True)
+        
+        # Save the updated dataframe
+        df.to_csv(output_file, index=False)
         
         logger.info(f"Processing complete:")
         logger.info(f"  - Total leads: {total_leads}")
         logger.info(f"  - Leads with missing emails: {missing_email_count}")
         logger.info(f"  - Emails found and updated: {found_email_count}")
-        logger.info(f"  - Original file updated: {file_path}")
+        logger.info(f"  - Output saved to: {output_file}")
         
-        return True
+        return output_file
     
     except Exception as e:
         logger.error(f"Error processing CSV file: {e}")
-        return False
+        return None
 
 def main():
-    """Main function to process LinkedIn leads CSV files"""
-    # Parse command line arguments
-    parser = argparse.ArgumentParser(description='Find missing emails for LinkedIn leads using Snov.io API')
-    parser.add_argument('--file', help='Specific CSV file to process (relative to output directory)')
+    """Main function with command line argument handling"""
+    parser = argparse.ArgumentParser(description='Find missing emails for lead data using Snov.io API')
+    parser.add_argument('--input', '-i', help='Input CSV file path')
+    parser.add_argument('--output', '-o', help='Output CSV file path (optional)')
+    parser.add_argument('--file', help='Alternative input file argument (for compatibility with main.py)')
     args = parser.parse_args()
     
-    print("=" * 60)
-    print("LinkedIn Leads Email Finder")
-    print("=" * 60)
+    # Determine which input parameter to use (--input or --file)
+    input_file = args.file if args.file else args.input
     
-    if args.file:
-        # Process specific file
-        # Check if path is absolute or already contains the full path
-        if os.path.isabs(args.file) or 'output' in args.file:
-            file_path = args.file
-        else:
-            # Get the current script directory
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            # The output directory is one level up and then into output
-            output_dir = os.path.join(os.path.dirname(script_dir), "output")
-            file_path = os.path.join(output_dir, args.file)
-            
-        if os.path.exists(file_path):
-            process_csv(file_path)
-        else:
-            logger.error(f"File not found: {file_path}")
-            logger.info(f"Looking in directory: {os.path.dirname(file_path)}")
-            if os.path.exists(os.path.dirname(file_path)):
-                logger.info(f"Available files: {os.listdir(os.path.dirname(file_path))}")
-    else:
-        # Process the most recent CSV file in the output directory
-        try:
-            # Get the current script directory
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            # The output directory is one level up and then into output
-            output_dir = os.path.join(os.path.dirname(script_dir), "output")
-            
-            if not os.path.exists(output_dir):
-                logger.error(f"Output directory not found: {output_dir}")
-                return
-                
-            output_files = [f for f in os.listdir(output_dir) if f.endswith(".csv")]
-            if not output_files:
-                logger.error("No CSV files found in output directory")
-                return
-            
-            # Sort files by modification time (newest first)
-            output_files.sort(key=lambda x: os.path.getmtime(os.path.join(output_dir, x)), reverse=True)
-            latest_file = os.path.join(output_dir, output_files[0])
-            
-            logger.info(f"Processing most recent file: {latest_file}")
-            process_csv(latest_file)
-        
-        except Exception as e:
-            logger.error(f"Error finding CSV files: {e}")
+    if not input_file:
+        logger.error("No input file specified. Use --input or --file to specify the CSV file.")
+        return
+    
+    if not os.path.exists(input_file):
+        logger.error(f"Input file not found: {input_file}")
+        return
+    
+    # Process the file
+    process_csv_file(input_file, args.output)
 
 if __name__ == "__main__":
     main()
