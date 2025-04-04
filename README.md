@@ -20,6 +20,7 @@ This tool allows you to automatically scrape LinkedIn Sales Navigator search res
 - Parallel scraping from multiple sources
 - Data merging and deduplication
 - Email verification via Snov.io and Hunter.io
+- Phone number validation via ClearoutPhone API
 
 ## Prerequisites
 
@@ -131,10 +132,16 @@ python main.py --leadrocks-only --search-query "real estate ceo US"  # For Unite
 python main.py --leadrocks-only --search-query "real estate ceo UK"  # For United Kingdom
 ```
 
+5. LeadRocks with Phone Validation:
+```bash
+python main.py --leadrocks-only --search-query "real estate ceo US" --validate-phones
+```
+
 Additional Options:
 - `--skip-snovio`: Skip Snov.io email finding
 - `--skip-hunter`: Skip Hunter.io email verification
 - `--input-csv`: Use existing CSV file instead of scraping
+- `--validate-phones`: Validate phone numbers using ClearoutPhone API
 
 The script will:
 1. Attempt to login using saved cookies
@@ -178,8 +185,11 @@ Key dependencies include:
     - "real estate ceo US"
     - "software engineer UK"
     - "startup founder US"
+  - Phone validation requires internet access and uses the ClearoutPhone API
+  - Validation results are stored as JSON files alongside the CSV files
 - API Keys:
   - Snov.io and Hunter.io API keys are required for email verification
+  - ClearoutPhone API key is used for phone number validation
   - Store API keys securely in environment variables or config files
 
 ## Legal Disclaimer
