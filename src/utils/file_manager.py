@@ -30,6 +30,7 @@ class FileManager:
         # Create subdirectories
         (self.run_dir / "linkedin").mkdir(exist_ok=True)
         (self.run_dir / "apollo").mkdir(exist_ok=True)
+        (self.run_dir / "leadrocks").mkdir(exist_ok=True)
         (self.run_dir / "merged").mkdir(exist_ok=True)
         (self.run_dir / "processed").mkdir(exist_ok=True)
         (self.run_dir / "screenshots").mkdir(exist_ok=True)
@@ -48,28 +49,31 @@ class FileManager:
             return self.run_dir / "apollo" / filename
         return self.run_dir / "apollo" / f"apollo_leads_{self.timestamp}.csv"
     
+    def get_leadrocks_path(self, filename=None):
+        """Get path for LeadRocks output files"""
+        if filename:
+            return self.run_dir / "leadrocks" / filename
+        return self.run_dir / "leadrocks" / f"leadrocks_leads_{self.timestamp}.csv"
+    
     def get_merged_path(self, filename=None):
         """Get path for merged output files"""
         if filename:
             return self.run_dir / "merged" / filename
         return self.run_dir / "merged" / f"merged_leads_{self.timestamp}.csv"
     
-    def get_processed_path(self, source="merged", filename=None):
+    def get_processed_path(self, source="unknown"):
         """Get path for processed output files"""
-        if filename:
-            return self.run_dir / "processed" / filename
         return self.run_dir / "processed" / f"{source}_processed_{self.timestamp}.csv"
     
     def get_screenshot_path(self, name):
         """Get path for screenshot files"""
         return self.run_dir / "screenshots" / f"{name}_{self.timestamp}.png"
     
-    def save_latest_reference(self, filepath, type_label):
-        """Create a reference to the latest file of a particular type"""
-        reference_file = self.base_dir / f"latest_{type_label}.txt"
-        with open(reference_file, "w") as f:
-            f.write(str(filepath))
-        logging.info(f"Updated reference to latest {type_label} file: {filepath}")
+    def save_latest_reference(self, file_path, source):
+        """Save reference to latest file for a given source"""
+        ref_file = self.base_dir / "latest_files.txt"
+        with open(ref_file, "a") as f:
+            f.write(f"{source}:{file_path}\n")
     
     def get_latest_file(self, type_label):
         """Get the latest file of a particular type"""
